@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: collab-finder-backend
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/huddle
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+
+  jpa:
+    hibernate:
+      ddl-auto: update   # fine for solo dev now; switch to validate + migrations (Flyway) before Sem 6 hardening
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+server:
+  port: 8080
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:change-this-to-a-real-secret-before-any-deploy}
+    expiration-ms: 86400000   # 24h
+
+  # college email domain(s) allowed at signup — trust layer gate, tighten/extend for Sem 6
+  allowed-email-domains:
+    - your-college-domain.edu.in
+
+  cors:
+    allowed-origins:
+      - http://localhost:3000   # Next.js dev server
