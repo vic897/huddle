@@ -1,11 +1,11 @@
 spring:
   application:
-    name: collab-finder-backend
+    name: huddle-backend
 
   datasource:
     url: jdbc:postgresql://localhost:5432/huddle
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
+    password: ${DB_PASSWORD:123456789}
 
   jpa:
     hibernate:
@@ -24,8 +24,7 @@ app:
     expiration-ms: 86400000   # 24h
 
   # college email domain(s) allowed at signup — trust layer gate, tighten/extend for Sem 6
-  allowed-email-domains:
-    - your-college-domain.edu.in
+  allowed-email-domains: cityengineeringcollege.ac.in
 
   cors:
     allowed-origins:

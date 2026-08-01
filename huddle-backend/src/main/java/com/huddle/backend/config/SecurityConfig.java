@@ -1,22 +1,32 @@
 package com.huddle.backend.config;
 
+import com.huddle.backend.security.JwtAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-// TEMPORARY: permissive config so the skeleton boots and /api/health is reachable.
-// Before any real endpoint (users, posts, requests, chat) is built, replace this with:
-//   - a JWT auth filter validating app.jwt.secret-signed tokens
-//   - .authorizeHttpRequests() rules gating everything except /api/auth/** and /api/health
-//   - server-side checks on collab-request/chat endpoints re-validating ACCEPTED status per request,
-//     not just at thread-creation time (this is the IDOR-prevention point from the project plan)
+// Real auth wiring: stateless JWT, /api/auth/** and /api/health open, everything else requires
+// a valid Bearer token via JwtAuthFilter. This replaces the earlier permissive placeholder —
+// note that request/chat endpoints will ALSO need per-request business-logic checks
+// (e.g. re-validating CollabRequest.status == ACCEPTED) on top of this; authentication alone
+// doesn't enforce authorization for who can read a specific chat thread.
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+    private final JwtAuthFilter jwtAuthFilter;
+
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+        this.jwtAuthFilter = jwtAuthFilter;
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -24,13 +34,20 @@ public class SecurityConfig {
     }
 
     @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
+    }
+
+    @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(csrf -> csrf.disable())   // fine for stateless JWT API; revisit if session auth is ever added
+            .csrf(csrf -> csrf.disable())   // stateless JWT API — no session/cookie to CSRF-attack
+            .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/health").permitAll()
-                .anyRequest().permitAll()   // TEMPORARY — tighten once JWT filter exists
-            );
+                .requestMatchers("/api/health", "/api/auth/**").permitAll()
+                .anyRequest().authenticated()
+            )
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 }

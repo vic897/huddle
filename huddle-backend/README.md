@@ -36,9 +36,14 @@ Expect `{"status":"ok","service":"huddle-backend"}`.
   app boots. This is the first thing to replace once auth work starts (Week 1-2 of the plan).
 - `controller/HealthController` — sanity-check endpoint
 
-## Not built yet (by design — this is the skeleton, not Week 1-2 output)
-- Signup/login endpoints + JWT issuing/validation
-- College-domain email verification logic
+## Built so far
+- `POST /api/auth/signup` — email/password + displayName, gated by `app.allowed-email-domains`
+  (edit that list in `application.yml` to your real college domain before testing)
+- `POST /api/auth/login` — returns a JWT
+- `JwtAuthFilter` + `SecurityConfig` — all endpoints except `/api/health` and `/api/auth/**`
+  now require a valid `Authorization: Bearer <token>` header
+
+## Not built yet
 - Post CRUD + browse/matching endpoints
 - Matching algorithm (weighted skill + availability scoring)
 - Request/accept/cooldown flow
