@@ -42,12 +42,23 @@ Expect `{"status":"ok","service":"huddle-backend"}`.
 - `POST /api/auth/login` — returns a JWT
 - `JwtAuthFilter` + `SecurityConfig` — all endpoints except `/api/health` and `/api/auth/**`
   now require a valid `Authorization: Bearer <token>` header
+- `GET /api/users/me` / `PUT /api/users/me` — minimal profile surface (displayName, bio,
+  githubUrl, skills, availability) — just enough to feed the matching algorithm, NOT full
+  profile management (that's deferred to end-of-backend per the project plan)
+- `GET /api/users/{id}` — view another user's profile (trimmed, no email/password exposed)
+- `POST /api/posts` — create a project post (title, brief, full description, desired skills)
+- `GET /api/posts` — plain browse, unranked. Only returns `PostSummaryResponse` (brief, never
+  `fullDescription`) — this is where tiered visibility is actually enforced server-side
+- `GET /api/posts/matched` — ranked browse using `MatchingService` (skill-complementarity +
+  availability-overlap weighted scoring) against the current user's own profile
 
 ## Not built yet
-- Post CRUD + browse/matching endpoints
 - Matching algorithm (weighted skill + availability scoring)
-- Request/accept/cooldown flow
-- WebSocket chat config + endpoints
+- Matching-weight tuning based on real testing (current weights: 70% skill, 30% availability — arbitrary starting point)
+- Request/accept/cooldown flow (`CollabRequest` entity + repository already exist, no endpoints yet)
+- WebSocket chat (`ChatMessage` entity + repository already exist, no endpoints/config yet)
 - Server-side re-validation of `CollabRequest.status == ACCEPTED` on every chat read/write —
   this is the specific access-control point the project plan calls out; don't skip it once
   chat endpoints exist.
+- Full-scale profile management UX (deferred to end-of-backend, before frontend starts)
+- Moderation (report/block)

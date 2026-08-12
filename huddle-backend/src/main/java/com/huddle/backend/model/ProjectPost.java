@@ -28,9 +28,9 @@ public class ProjectPost {
     @Column(nullable = false, length = 280)
     private String briefDescription;   // public teaser — always visible to browsers
 
-    @Lob
-    private String fullDescription;    // gated — never returned by the public browse/list endpoint,
-                                        // only via an endpoint scoped to an accepted request thread
+    @Column(columnDefinition = "TEXT")
+    private String fullDescription;    
+                                        
 
     @ElementCollection
     @CollectionTable(name = "post_desired_skills", joinColumns = @JoinColumn(name = "post_id"))

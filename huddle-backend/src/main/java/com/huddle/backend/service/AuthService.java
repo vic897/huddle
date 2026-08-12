@@ -10,7 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.List;
 
 @Service
 public class AuthService {
@@ -74,7 +74,7 @@ public class AuthService {
 
     private boolean isAllowedDomain(String email) {
         if (allowedEmailDomains == null || allowedEmailDomains.isBlank()) return false;
-        return Arrays.stream(allowedEmailDomains.split(","))
+        return java.util.Arrays.stream(allowedEmailDomains.split(","))
                 .map(String::trim)
                 .filter(d -> !d.isEmpty())
                 .anyMatch(domain -> email.endsWith("@" + domain.toLowerCase()));
