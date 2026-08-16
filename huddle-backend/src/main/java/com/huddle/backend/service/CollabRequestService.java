@@ -20,10 +20,14 @@ public class CollabRequestService {
 
     private final CollabRequestRepository requestRepository;
     private final ProjectPostRepository postRepository;
+    private final BlockService blockService;
 
-    public CollabRequestService(CollabRequestRepository requestRepository, ProjectPostRepository postRepository) {
+    public CollabRequestService(CollabRequestRepository requestRepository,
+                                 ProjectPostRepository postRepository,
+                                 BlockService blockService) {
         this.requestRepository = requestRepository;
         this.postRepository = postRepository;
+        this.blockService = blockService;
     }
 
     public CollabRequest sendRequest(User requestor, String postId, String previewMessage) {
@@ -34,6 +38,11 @@ public class CollabRequestService {
 
         if (poster.getId().equals(requestor.getId())) {
             throw new IllegalArgumentException("Cannot send a request to your own post");
+        }
+
+        if (blockService.isBlocked(requestor.getId(), poster.getId())
+                || blockService.isBlocked(poster.getId(), requestor.getId())) {
+            throw new IllegalStateException("Cannot send a request to this user");
         }
 
         // Cooldown check — most recent request between this exact requestor/poster pair.
@@ -65,9 +74,6 @@ public class CollabRequestService {
         CollabRequest request = requestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Request not found"));
 
-        // Server-side ownership check — only the POSTER (not the requestor, not anyone else)
-        // can accept/reject. This is exactly the kind of authorization check that must never
-        // be trusted to the client.
         if (!request.getPoster().getId().equals(currentUser.getId())) {
             throw new SecurityException("Only the poster can respond to this request");
         }

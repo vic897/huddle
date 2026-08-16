@@ -5,6 +5,7 @@ import com.huddle.backend.dto.PostSummaryResponse;
 import com.huddle.backend.model.ProjectPost;
 import com.huddle.backend.model.User;
 import com.huddle.backend.repository.ProjectPostRepository;
+import com.huddle.backend.service.BlockService;
 import com.huddle.backend.service.MatchingService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
@@ -22,10 +24,14 @@ public class ProjectPostController {
 
     private final ProjectPostRepository postRepository;
     private final MatchingService matchingService;
+    private final BlockService blockService;
 
-    public ProjectPostController(ProjectPostRepository postRepository, MatchingService matchingService) {
+    public ProjectPostController(ProjectPostRepository postRepository,
+                                  MatchingService matchingService,
+                                  BlockService blockService) {
         this.postRepository = postRepository;
         this.matchingService = matchingService;
+        this.blockService = blockService;
     }
 
     @PostMapping
@@ -48,23 +54,36 @@ public class ProjectPostController {
     }
 
     // Plain browse — no ranking, just what's open. Full description is NEVER included here;
-    // see PostSummaryResponse for why.
+    // see PostSummaryResponse for why. Blocked posters' posts are filtered out server-side —
+    // this is the actual enforcement point for Block, not just a UI hide.
     @GetMapping
-    public ResponseEntity<List<PostSummaryResponse>> browse() {
+    public ResponseEntity<List<PostSummaryResponse>> browse(@AuthenticationPrincipal User currentUser) {
+        Set<String> blockedIds = currentUser != null
+                ? blockService.getBlockedIds(currentUser.getId())
+                : Set.of();
+
         List<PostSummaryResponse> posts = postRepository.findByOpenToCollabTrue().stream()
+                .filter(p -> !blockedIds.contains(p.getPoster().getId()))
                 .map(PostSummaryResponse::new)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(posts);
     }
 
     // Ranked browse — matching algorithm applied against the current user's own skills/availability.
+    // Same block-filtering applied before ranking, not after — no point scoring someone you'll
+    // never see.
     @GetMapping("/matched")
     public ResponseEntity<?> matchedForMe(@AuthenticationPrincipal User currentUser) {
         if (currentUser == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
         }
 
-        List<ProjectPost> openPosts = postRepository.findByOpenToCollabTrue();
+        Set<String> blockedIds = blockService.getBlockedIds(currentUser.getId());
+
+        List<ProjectPost> openPosts = postRepository.findByOpenToCollabTrue().stream()
+                .filter(p -> !blockedIds.contains(p.getPoster().getId()))
+                .collect(Collectors.toList());
+
         List<MatchingService.MatchResult> ranked = matchingService.rankPostsForCandidate(currentUser, openPosts);
 
         List<Map<String, Object>> response = ranked.stream()
