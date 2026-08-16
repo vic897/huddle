@@ -1,10 +1,14 @@
 package com.huddle.backend.controller;
 
+import com.huddle.backend.dto.ChatMessageResponse;
 import com.huddle.backend.dto.CollabRequestResponse;
 import com.huddle.backend.dto.SendRequestDto;
+import com.huddle.backend.model.ChatMessage;
 import com.huddle.backend.model.CollabRequest;
 import com.huddle.backend.model.ProjectPost;
 import com.huddle.backend.model.User;
+import com.huddle.backend.repository.ChatMessageRepository;
+import com.huddle.backend.repository.CollabRequestRepository;
 import com.huddle.backend.repository.ProjectPostRepository;
 import com.huddle.backend.service.CollabRequestService;
 import jakarta.validation.Valid;
@@ -13,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -21,16 +26,23 @@ public class CollabRequestController {
 
     private final CollabRequestService requestService;
     private final ProjectPostRepository postRepository;
+    private final CollabRequestRepository requestRepository;
+    private final ChatMessageRepository chatMessageRepository;
 
-    public CollabRequestController(CollabRequestService requestService, ProjectPostRepository postRepository) {
+    public CollabRequestController(CollabRequestService requestService,
+                                   ProjectPostRepository postRepository,
+                                   CollabRequestRepository requestRepository,
+                                   ChatMessageRepository chatMessageRepository) {
         this.requestService = requestService;
         this.postRepository = postRepository;
+        this.requestRepository = requestRepository;
+        this.chatMessageRepository = chatMessageRepository;
     }
 
     @PostMapping("/posts/{postId}/requests")
     public ResponseEntity<?> send(@AuthenticationPrincipal User currentUser,
-                                   @PathVariable String postId,
-                                   @Valid @RequestBody SendRequestDto dto) {
+                                  @PathVariable String postId,
+                                  @Valid @RequestBody SendRequestDto dto) {
         try {
             CollabRequest r = requestService.sendRequest(currentUser, postId, dto.getPreviewMessage());
             return ResponseEntity.status(HttpStatus.CREATED).body(new CollabRequestResponse(r));
@@ -76,7 +88,8 @@ public class CollabRequestController {
     // decision is actually enforced. Owner always sees their own post; anyone else needs
     // a live-checked ACCEPTED CollabRequest, re-validated on every call, never cached.
     @GetMapping("/posts/{postId}/full")
-    public ResponseEntity<?> getFullDescription(@AuthenticationPrincipal User currentUser, @PathVariable String postId) {
+    public ResponseEntity<?> getFullDescription(@AuthenticationPrincipal User currentUser,
+                                                @PathVariable String postId) {
         ProjectPost post = postRepository.findById(postId).orElse(null);
         if (post == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Post not found"));
@@ -95,5 +108,24 @@ public class CollabRequestController {
                 "title", post.getTitle(),
                 "fullDescription", post.getFullDescription()
         ));
+    }
+
+    @GetMapping("/requests/{id}/messages")
+    public ResponseEntity<?> getMessages(@AuthenticationPrincipal User currentUser,
+                                         @PathVariable String id) {
+        CollabRequest request = requestRepository.findById(id).orElse(null);
+        if (request == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Request not found"));
+        }
+
+        boolean isParticipant = request.getRequestor().getId().equals(currentUser.getId())
+                || request.getPoster().getId().equals(currentUser.getId());
+
+        if (!isParticipant || request.getStatus() != CollabRequest.RequestStatus.ACCEPTED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "No access to this chat"));
+        }
+
+        List<ChatMessage> messages = chatMessageRepository.findByCollabRequestIdOrderBySentAtAsc(id);
+        return ResponseEntity.ok(messages.stream().map(ChatMessageResponse::new).toList());
     }
 }
