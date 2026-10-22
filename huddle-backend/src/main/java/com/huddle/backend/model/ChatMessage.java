@@ -16,18 +16,25 @@ public class ChatMessage {
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
-    // a chat thread only exists once its originating CollabRequest is ACCEPTED —
-    // enforce that check server-side on every read/write, not just at thread-creation time
-    @ManyToOne(optional = false)
-    @JoinColumn(name = "collab_request_id")
+    // 1-to-1 conversation link (nullable for workspace group chat)
+    @ManyToOne(optional = true)
+    @JoinColumn(name = "collab_request_id", nullable = true)
     private CollabRequest collabRequest;
 
+    // Workspace group chat link (nullable for legacy 1-to-1 chat)
+    @ManyToOne(optional = true)
+    @JoinColumn(name = "collaboration_id", nullable = true)
+    private Collaboration collaboration;
+
     @ManyToOne(optional = false)
-    @JoinColumn(name = "sender_id")
+    @JoinColumn(name = "sender_id", nullable = false)
     private User sender;
 
     @Column(nullable = false, length = 2000)
     private String content;
+
+    @Column(name = "is_read", columnDefinition = "boolean default false")
+    private boolean isRead = false;
 
     private Instant sentAt = Instant.now();
 }

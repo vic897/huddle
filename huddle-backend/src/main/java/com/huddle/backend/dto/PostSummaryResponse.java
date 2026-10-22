@@ -18,6 +18,7 @@ public class PostSummaryResponse {
     private final String title;
     private final String briefDescription;
     private final Set<String> desiredSkills;
+    private final Set<String> desiredAvailability;
     private final boolean openToCollab;
     private final Instant createdAt;
 
@@ -28,6 +29,7 @@ public class PostSummaryResponse {
         this.title = post.getTitle();
         this.briefDescription = post.getBriefDescription();
         this.desiredSkills = post.getDesiredSkills();
+        this.desiredAvailability = post.getDesiredAvailability();
         this.openToCollab = post.isOpenToCollab();
         this.createdAt = post.getCreatedAt();
     }

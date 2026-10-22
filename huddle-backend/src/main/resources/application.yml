@@ -2,12 +2,29 @@ spring:
   application:
     name: huddle-backend
 
+  mail:
+    host: ${SPRING_MAIL_HOST:}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
   datasource:
     url: jdbc:postgresql://localhost:5432/huddle
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:123456789}
 
+  sql:
+    init:
+      mode: always
+
   jpa:
+    defer-datasource-initialization: false
     hibernate:
       ddl-auto: update
     show-sql: true
@@ -27,8 +44,26 @@ app:
     secret: ${JWT_SECRET:change-this-to-a-real-secret-before-any-deploy}
     expiration-ms: 86400000
 
-  allowed-email-domains: cityengineeringcollege.ac.in
+  frontend-url: ${FRONTEND_URL:http://localhost:3000}
+
+  email:
+    dev-mode: ${EMAIL_DEV_MODE:true}
+
+  allowed-email-domains: ${ALLOWED_EMAIL_DOMAINS:cityengineeringcollege.ac.in}
+
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:73151215086-a5k8cdrq1qipb0duqbra4jdfurpjaepk.apps.googleusercontent.com}
 
   cors:
     allowed-origins:
       - http://localhost:3000
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+app:
+  google:
+    client-id: ${GOOGLE_CLIENT_ID}

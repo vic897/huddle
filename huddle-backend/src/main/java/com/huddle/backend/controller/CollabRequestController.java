@@ -43,6 +43,12 @@ public class CollabRequestController {
     public ResponseEntity<?> send(@AuthenticationPrincipal User currentUser,
                                   @PathVariable String postId,
                                   @Valid @RequestBody SendRequestDto dto) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+        if (currentUser.getInstitutionStatus() != com.huddle.backend.model.InstitutionStatus.VERIFIED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Institution verification pending or rejected"));
+        }
         try {
             CollabRequest r = requestService.sendRequest(currentUser, postId, dto.getPreviewMessage());
             return ResponseEntity.status(HttpStatus.CREATED).body(new CollabRequestResponse(r));
@@ -53,11 +59,23 @@ public class CollabRequestController {
 
     @PutMapping("/requests/{id}/accept")
     public ResponseEntity<?> accept(@AuthenticationPrincipal User currentUser, @PathVariable String id) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+        if (currentUser.getInstitutionStatus() != com.huddle.backend.model.InstitutionStatus.VERIFIED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Institution verification pending or rejected"));
+        }
         return respond(currentUser, id, true);
     }
 
     @PutMapping("/requests/{id}/reject")
     public ResponseEntity<?> reject(@AuthenticationPrincipal User currentUser, @PathVariable String id) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+        if (currentUser.getInstitutionStatus() != com.huddle.backend.model.InstitutionStatus.VERIFIED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Institution verification pending or rejected"));
+        }
         return respond(currentUser, id, false);
     }
 
@@ -74,6 +92,12 @@ public class CollabRequestController {
 
     @PutMapping("/requests/{id}/withdraw")
     public ResponseEntity<?> withdraw(@AuthenticationPrincipal User currentUser, @PathVariable String id) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+        if (currentUser.getInstitutionStatus() != com.huddle.backend.model.InstitutionStatus.VERIFIED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Institution verification pending or rejected"));
+        }
         try {
             CollabRequest r = requestService.withdraw(currentUser, id);
             return ResponseEntity.ok(new CollabRequestResponse(r));
@@ -90,6 +114,12 @@ public class CollabRequestController {
     @GetMapping("/posts/{postId}/full")
     public ResponseEntity<?> getFullDescription(@AuthenticationPrincipal User currentUser,
                                                 @PathVariable String postId) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+        if (currentUser.getInstitutionStatus() != com.huddle.backend.model.InstitutionStatus.VERIFIED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Institution verification pending or rejected"));
+        }
         ProjectPost post = postRepository.findById(postId).orElse(null);
         if (post == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Post not found"));
@@ -113,6 +143,12 @@ public class CollabRequestController {
     @GetMapping("/requests/{id}/messages")
     public ResponseEntity<?> getMessages(@AuthenticationPrincipal User currentUser,
                                          @PathVariable String id) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+        if (currentUser.getInstitutionStatus() != com.huddle.backend.model.InstitutionStatus.VERIFIED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Institution verification pending or rejected"));
+        }
         CollabRequest request = requestRepository.findById(id).orElse(null);
         if (request == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Request not found"));
@@ -128,4 +164,70 @@ public class CollabRequestController {
         List<ChatMessage> messages = chatMessageRepository.findByCollabRequestIdOrderBySentAtAsc(id);
         return ResponseEntity.ok(messages.stream().map(ChatMessageResponse::new).toList());
     }
-}
+    @GetMapping("/requests")
+    public ResponseEntity<?> getMyRequests(@AuthenticationPrincipal User currentUser,
+                                           @RequestParam(required = false, defaultValue = "received") String type) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+        if (currentUser.getInstitutionStatus() != com.huddle.backend.model.InstitutionStatus.VERIFIED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Institution verification pending or rejected"));
+        }
+        List<CollabRequest> requests;
+        if (type.equalsIgnoreCase("sent")) {
+            requests = requestRepository.findByRequestorId(currentUser.getId());
+        } else {
+            // default to received (where current user is the poster)
+            requests = requestRepository.findByPosterId(currentUser.getId());
+        }
+        List<CollabRequestResponse> response = requests.stream()
+                .map(CollabRequestResponse::new)
+                .toList();
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/messages/unread-count")
+    public ResponseEntity<Long> getUnreadMessageCount(@AuthenticationPrincipal User currentUser) {
+        long count = chatMessageRepository.countUnreadMessagesForUser(currentUser.getId());
+        return ResponseEntity.ok(count);
+    }
+
+    @GetMapping("/messages/unread-counts")
+    public ResponseEntity<List<com.huddle.backend.dto.UnreadCountResponse>> getUnreadMessageCounts(@AuthenticationPrincipal User currentUser) {
+        List<com.huddle.backend.dto.UnreadCountResponse> counts = chatMessageRepository.countUnreadMessagesGroupedByRequest(currentUser.getId());
+        return ResponseEntity.ok(counts);
+    }
+
+    @PutMapping("/requests/{id}/messages/read")
+    public ResponseEntity<?> markMessagesAsRead(@AuthenticationPrincipal User currentUser,
+                                                @PathVariable String id) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+        if (currentUser.getInstitutionStatus() != com.huddle.backend.model.InstitutionStatus.VERIFIED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Institution verification pending or rejected"));
+        }
+        CollabRequest request = requestRepository.findById(id).orElse(null);
+        if (request == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Request not found"));
+        }
+
+        boolean isParticipant = request.getRequestor().getId().equals(currentUser.getId())
+                || request.getPoster().getId().equals(currentUser.getId());
+
+        if (!isParticipant) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "No access to this chat"));
+        }
+
+        List<ChatMessage> unreadMessages = chatMessageRepository.findByCollabRequestIdAndSenderIdNotAndIsReadFalse(id, currentUser.getId());
+        
+        if (!unreadMessages.isEmpty()) {
+            for (ChatMessage msg : unreadMessages) {
+                msg.setRead(true);
+            }
+            chatMessageRepository.saveAll(unreadMessages);
+        }
+
+        return ResponseEntity.ok().build();
+    }
+}

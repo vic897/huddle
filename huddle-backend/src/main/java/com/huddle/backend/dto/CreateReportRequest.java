@@ -11,4 +11,7 @@ public class CreateReportRequest {
     @NotBlank
     @Size(max = 500)
     private String reason;
+
+    @Size(max = 1000)
+    private String description;
 }

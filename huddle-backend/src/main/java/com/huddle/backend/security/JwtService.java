@@ -27,17 +27,27 @@ public class JwtService {
     }
 
     public String generateToken(String userId, String email) {
+        return generateToken(userId, email, java.util.Set.of());
+    }
+
+    public String generateToken(String userId, String email, java.util.Set<String> roles) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expirationMs);
         return Jwts.builder()
                 .subject(userId)
                 .claim("email", email)
+                .claim("roles", roles != null ? roles : java.util.Set.of())
                 .issuedAt(now)
                 .expiration(expiry)
                 .signWith(key())
                 .compact();
     }
 
+
+
+    public Date extractIssuedAt(String token) {
+        return extractClaim(token, Claims::getIssuedAt);
+    }
     public String extractUserId(String token) {
         return extractClaim(token, Claims::getSubject);
     }

@@ -32,10 +32,15 @@ public class ProjectPost {
     private String fullDescription;    
                                         
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "post_desired_skills", joinColumns = @JoinColumn(name = "post_id"))
     @Column(name = "skill")
     private Set<String> desiredSkills = new HashSet<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "post_desired_availability", joinColumns = @JoinColumn(name = "post_id"))
+    @Column(name = "slot")
+    private Set<String> desiredAvailability = new HashSet<>();
 
     private boolean openToCollab = true;
 

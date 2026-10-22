@@ -13,4 +13,5 @@ public interface CollabRequestRepository extends JpaRepository<CollabRequest, St
 
     // used to enforce the cooldown check before allowing a new request between the same pair
     Optional<CollabRequest> findTopByRequestorIdAndPosterIdOrderByCreatedAtDesc(String requestorId, String posterId);
+    List<CollabRequest> findByPostId(String postId);
 }

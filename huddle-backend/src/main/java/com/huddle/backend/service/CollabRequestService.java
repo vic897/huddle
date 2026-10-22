@@ -7,6 +7,7 @@ import com.huddle.backend.model.User;
 import com.huddle.backend.repository.CollabRequestRepository;
 import com.huddle.backend.repository.ProjectPostRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -21,13 +22,19 @@ public class CollabRequestService {
     private final CollabRequestRepository requestRepository;
     private final ProjectPostRepository postRepository;
     private final BlockService blockService;
+    private final NotificationService notificationService;
+    private final CollaborationService collaborationService;
 
     public CollabRequestService(CollabRequestRepository requestRepository,
                                  ProjectPostRepository postRepository,
-                                 BlockService blockService) {
+                                 BlockService blockService,
+                                 NotificationService notificationService,
+                                 CollaborationService collaborationService) {
         this.requestRepository = requestRepository;
         this.postRepository = postRepository;
         this.blockService = blockService;
+        this.notificationService = notificationService;
+        this.collaborationService = collaborationService;
     }
 
     public CollabRequest sendRequest(User requestor, String postId, String previewMessage) {
@@ -67,9 +74,22 @@ public class CollabRequestService {
         request.setPreviewMessage(previewMessage);
         request.setStatus(RequestStatus.PENDING);
 
-        return requestRepository.save(request);
+        CollabRequest saved = requestRepository.save(request);
+
+        // Notify the project owner of the new collaboration request
+        String requestorName = requestor.getDisplayName() != null ? requestor.getDisplayName() : requestor.getEmail();
+        notificationService.createNotification(
+                poster,
+                "COLLAB_REQUEST_RECEIVED",
+                "New collaboration request",
+                requestorName + " wants to collaborate on your project \"" + post.getTitle() + "\".",
+                "/requests"
+        );
+
+        return saved;
     }
 
+    @Transactional
     public CollabRequest respond(User currentUser, String requestId, boolean accept) {
         CollabRequest request = requestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Request not found"));
@@ -89,7 +109,36 @@ public class CollabRequestService {
             request.setCooldownUntil(Instant.now().plus(COOLDOWN_HOURS, ChronoUnit.HOURS));
         }
 
-        return requestRepository.save(request);
+        CollabRequest saved = requestRepository.save(request);
+
+        if (accept) {
+            collaborationService.handleCollabRequestAccepted(saved);
+        }
+
+        // Notify the requestor of the decision
+        User requestor = request.getRequestor();
+        String posterName = currentUser.getDisplayName() != null ? currentUser.getDisplayName() : currentUser.getEmail();
+        String projectTitle = request.getPost().getTitle();
+
+        if (accept) {
+            notificationService.createNotification(
+                    requestor,
+                    "COLLAB_REQUEST_ACCEPTED",
+                    "Collaboration request accepted!",
+                    posterName + " accepted your request to collaborate on \"" + projectTitle + "\". You can now message each other.",
+                    "/requests"
+            );
+        } else {
+            notificationService.createNotification(
+                    requestor,
+                    "COLLAB_REQUEST_REJECTED",
+                    "Collaboration request declined",
+                    posterName + " declined your request to collaborate on \"" + projectTitle + "\".",
+                    "/requests"
+            );
+        }
+
+        return saved;
     }
 
     public CollabRequest withdraw(User currentUser, String requestId) {
