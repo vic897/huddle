@@ -16,13 +16,10 @@ SET institution_domain = SUBSTRING(email FROM POSITION('@' IN email) + 1)
 WHERE institution_domain IS NULL AND email LIKE '%@%';
 
 -- 3. Backfill institution_status for allowlisted domains as VERIFIED, non-allowlisted as PENDING
--- Default allowlisted domain: cityengineeringcollege.ac.in
-UPDATE users
-SET institution_status = 'VERIFIED',
-    institution_verified_at = COALESCE(institution_verified_at, NOW())
-WHERE (institution_status IS NULL OR institution_status = 'PENDING')
-  AND LOWER(email) LIKE '%@cityengineeringcollege.ac.in';
-
+-- NOTE: The per-domain VERIFIED backfill is handled at runtime by InstitutionBackfillRunner
+--       using app.allowed-email-domains, which is configurable per environment.
+--       The previous hardcoded cityengineeringcollege.ac.in UPDATE has been removed to avoid
+--       silently verifying accounts from the wrong institution in other deployments.
 UPDATE users
 SET institution_status = 'PENDING'
 WHERE institution_status IS NULL;

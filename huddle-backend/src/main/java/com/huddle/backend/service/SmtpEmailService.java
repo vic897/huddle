@@ -61,14 +61,19 @@ public class SmtpEmailService implements EmailService {
     }
 
     private void deliverEmail(String recipientEmail, String subject, String body, String devSummary, String devActionUrl) {
-        // If mail host is not configured or devMode is enabled, do safe development logging
+        // If mail host is not configured or devMode is enabled, handle local dev logging or fail safely
         if (mailSender == null || mailHost == null || mailHost.isBlank() || devMode) {
-            log.info("[EmailService - Local/Dev Delivery] To: {} | Subject: {} | Status: {}",
-                    recipientEmail, subject, devSummary);
-            // In dev mode only: log the full action URL so developers can test without SMTP.
-            // This log line is guarded by devMode and MUST NOT appear in production.
-            if (devActionUrl != null) {
-                log.info("[DEV ONLY - NOT FOR PRODUCTION] Action URL for {}: {}", recipientEmail, devActionUrl);
+            if (devMode) {
+                log.info("[EmailService - Local/Dev Delivery] To: {} | Subject: {} | Status: {}",
+                        recipientEmail, subject, devSummary);
+                // In dev mode only: log the full action URL so developers can test without SMTP.
+                // This log line is strictly guarded by devMode and MUST NOT appear in production.
+                if (devActionUrl != null) {
+                    log.info("[DEV ONLY - NOT FOR PRODUCTION] Action URL for {}: {}", recipientEmail, devActionUrl);
+                }
+            } else {
+                log.warn("SMTP host is not configured (SPRING_MAIL_HOST). Cannot deliver email to {}. Token link is NOT logged in production.",
+                        recipientEmail);
             }
             return;
         }

@@ -105,6 +105,16 @@
             <version>2.6.0</version>
         </dependency>
 
+        <!-- Flyway – versioned database migrations (Flyway 10 requires separate PG module) -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
         <!-- Testing -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

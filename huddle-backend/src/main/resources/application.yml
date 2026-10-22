@@ -19,6 +19,9 @@ spring:
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:123456789}
 
+  flyway:
+    enabled: false          # dev uses ddl-auto: update + schema.sql; Flyway is prod-only
+
   sql:
     init:
       mode: always
@@ -37,7 +40,7 @@ logging:
     org.springframework.security: DEBUG
 
 server:
-  port: 8080
+  port: ${PORT:8080}
 
 app:
   jwt:
@@ -55,8 +58,7 @@ app:
     client-id: ${GOOGLE_CLIENT_ID:73151215086-a5k8cdrq1qipb0duqbra4jdfurpjaepk.apps.googleusercontent.com}
 
   cors:
-    allowed-origins:
-      - http://localhost:3000
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
 
 ---
 spring:
@@ -64,6 +66,26 @@ spring:
     activate:
       on-profile: prod
 
+  jpa:
+    show-sql: false
+    hibernate:
+      ddl-auto: validate          # Hibernate only validates; Flyway owns the schema
+
+  flyway:
+    enabled: true                 # Flyway active in prod; migrations in db/migration/
+
+  sql:
+    init:
+      mode: never                 # schema.sql startup patches disabled in prod
+
+logging:
+  level:
+    org.springframework.security: INFO
+
 app:
+  email:
+    dev-mode: false
   google:
     client-id: ${GOOGLE_CLIENT_ID}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
