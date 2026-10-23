@@ -15,7 +15,7 @@ spring:
             enable: true
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/huddle
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/huddle}
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:123456789}
 
