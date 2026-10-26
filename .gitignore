@@ -36,3 +36,6 @@ Thumbs.db
 *.log
 coverage/
 *.tsbuildinfo
+
+# File storage (test uploads and runtime data)
+uploads/

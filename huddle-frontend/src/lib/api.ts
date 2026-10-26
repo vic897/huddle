@@ -363,3 +363,219 @@ export const adminService = {
   dismissReport: (id: string): Promise<AdminReport> =>
     apiFetch(`/admin/reports/${id}/dismiss`, { method: "PUT" }),
 };
+
+export interface FileItem {
+  id: string;
+  name: string;
+  fileType: string | null;
+  sizeBytes: number | null;
+  isFolder: boolean;
+  parentFolderId: string | null;
+  isInTrash: boolean;
+  uploadedBy: string;
+  uploadedByDisplayName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FileListResponse {
+  files: FileItem[];
+  currentFolderId: string | null;
+  currentFolderName: string | null;
+}
+
+export interface FileUploadResponse {
+  id: string;
+  name: string;
+  fileType: string | null;
+  sizeBytes: number;
+  storagePath: string;
+  uploadedBy: string;
+  uploadedByDisplayName: string;
+  createdAt: string;
+}
+
+export interface StorageUsageResponse {
+  usedBytes: number;
+  totalBytes: number;
+  usagePercentage: number;
+  fileCount: number;
+}
+
+export interface FileVersionResponse {
+  id: string;
+  versionNumber: number;
+  sizeBytes: number;
+  uploadedBy: string;
+  uploadedByDisplayName: string;
+  createdAt: string;
+}
+
+export interface VersionListResponse {
+  fileId: string;
+  fileName: string;
+  versions: FileVersionResponse[];
+}
+
+export const fileService = {
+  listFiles: (collaborationId: string, folderId?: string): Promise<FileListResponse> => {
+    const params = new URLSearchParams();
+    if (folderId) params.set("folderId", folderId);
+    const query = params.toString();
+    return apiFetch(`/collaborations/${collaborationId}/files${query ? `?${query}` : ""}`);
+  },
+  listTrash: (collaborationId: string): Promise<FileListResponse> =>
+    apiFetch(`/collaborations/${collaborationId}/files/trash`),
+  uploadFile: (collaborationId: string, file: File, folderId?: string): Promise<FileUploadResponse> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (folderId) formData.append("folderId", folderId);
+
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    return fetch(`${API_BASE}/collaborations/${collaborationId}/files/upload`, {
+      method: "POST",
+      headers,
+      body: formData,
+    }).then(async (response) => {
+      if (response.status === 401) {
+        logout();
+        throw new Error("Unauthorized");
+      }
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || data.message || "Upload failed");
+      }
+      return data;
+    });
+  },
+  createFolder: (collaborationId: string, name: string, parentFolderId?: string): Promise<FileItem> => {
+    const params = new URLSearchParams();
+    params.set("name", name);
+    if (parentFolderId) params.set("parentFolderId", parentFolderId);
+    const query = params.toString();
+    return apiFetch(`/collaborations/${collaborationId}/files/folder?${query}`, { method: "POST" });
+  },
+  renameFile: (collaborationId: string, fileId: string, name: string): Promise<FileItem> => {
+    const params = new URLSearchParams();
+    params.set("name", name);
+    const query = params.toString();
+    return apiFetch(`/collaborations/${collaborationId}/files/${fileId}/rename?${query}`, { method: "PUT" });
+  },
+  moveFile: (collaborationId: string, fileId: string, targetFolderId?: string): Promise<FileItem> => {
+    const params = new URLSearchParams();
+    if (targetFolderId) params.set("targetFolderId", targetFolderId);
+    const query = params.toString();
+    return apiFetch(`/collaborations/${collaborationId}/files/${fileId}/move?${query}`, { method: "PUT" });
+  },
+  moveToTrash: (collaborationId: string, fileId: string): Promise<{ message: string }> =>
+    apiFetch(`/collaborations/${collaborationId}/files/${fileId}/trash`, { method: "PUT" }),
+  restoreFromTrash: (collaborationId: string, fileId: string): Promise<FileItem> =>
+    apiFetch(`/collaborations/${collaborationId}/files/${fileId}/restore`, { method: "PUT" }),
+  permanentlyDelete: (collaborationId: string, fileId: string): Promise<{ message: string }> =>
+    apiFetch(`/collaborations/${collaborationId}/files/${fileId}`, { method: "DELETE" }),
+  downloadFile: (collaborationId: string, fileId: string): void => {
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    fetch(`${API_BASE}/collaborations/${collaborationId}/files/${fileId}/download`, {
+      headers,
+    }).then((response) => {
+      if (response.status === 401) {
+        logout();
+        return;
+      }
+      if (!response.ok) {
+        throw new Error("Download failed");
+      }
+      return response.blob();
+    }).then((blob) => {
+      if (!blob) {
+        throw new Error("Download failed - no data received");
+      }
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = blob.type || "download";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    }).catch((err) => {
+      console.error("Download error:", err);
+    });
+  },
+  replaceFile: (collaborationId: string, fileId: string, file: File): Promise<FileItem> => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    return fetch(`${API_BASE}/collaborations/${collaborationId}/files/${fileId}/replace`, {
+      method: "POST",
+      headers,
+      body: formData,
+    }).then(async (response) => {
+      if (response.status === 401) {
+        logout();
+        throw new Error("Unauthorized");
+      }
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || data.message || "Replace failed");
+      }
+      return data;
+    });
+  },
+  listVersions: (collaborationId: string, fileId: string): Promise<VersionListResponse> =>
+    apiFetch(`/collaborations/${collaborationId}/files/${fileId}/versions`),
+  downloadVersion: (collaborationId: string, fileId: string, versionNumber: number): void => {
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    fetch(`${API_BASE}/collaborations/${collaborationId}/files/${fileId}/versions/${versionNumber}/download`, {
+      headers,
+    }).then((response) => {
+      if (response.status === 401) {
+        logout();
+        return;
+      }
+      if (!response.ok) {
+        throw new Error("Download failed");
+      }
+      return response.blob();
+    }).then((blob) => {
+      if (!blob) {
+        throw new Error("Download failed - no data received");
+      }
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = blob.type || "download";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    }).catch((err) => {
+      console.error("Download error:", err);
+    });
+  },
+  restoreVersion: (collaborationId: string, fileId: string, versionNumber: number): Promise<FileItem> =>
+    apiFetch(`/collaborations/${collaborationId}/files/${fileId}/versions/${versionNumber}/restore`, { method: "POST" }),
+  getStorageUsage: (collaborationId: string): Promise<StorageUsageResponse> =>
+    apiFetch(`/collaborations/${collaborationId}/storage`),
+};
