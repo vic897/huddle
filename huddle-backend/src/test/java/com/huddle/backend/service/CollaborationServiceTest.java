@@ -1,5 +1,6 @@
 package com.huddle.backend.service;
 
+import com.huddle.backend.config.FileStorageConfig;
 import com.huddle.backend.model.*;
 import com.huddle.backend.model.Collaboration.CollaborationStatus;
 import com.huddle.backend.model.CollaborationMember.MemberRole;
@@ -7,6 +8,8 @@ import com.huddle.backend.model.CollaborationMember.MemberStatus;
 import com.huddle.backend.repository.CollaborationMemberRepository;
 import com.huddle.backend.repository.CollaborationRepository;
 import com.huddle.backend.repository.CollabRequestRepository;
+import com.huddle.backend.repository.ProjectFileRepository;
+import com.huddle.backend.repository.ChatMessageRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,6 +17,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,6 +36,15 @@ public class CollaborationServiceTest {
 
     @Mock
     private CollabRequestRepository collabRequestRepository;
+
+    @Mock
+    private ProjectFileRepository projectFileRepository;
+
+    @Mock
+    private ChatMessageRepository chatMessageRepository;
+
+    @Mock
+    private FileStorageConfig fileStorageConfig;
 
     @InjectMocks
     private CollaborationService collaborationService;

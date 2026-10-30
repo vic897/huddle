@@ -37,6 +37,8 @@ public class ChatController {
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final ChatMessageService chatMessageService;
+    private final com.huddle.backend.repository.ProjectFileRepository projectFileRepository;
+    private final com.huddle.backend.service.CollaborationService collaborationService;
 
     public ChatController(ChatMessageRepository chatMessageRepository,
                           CollabRequestRepository collabRequestRepository,
@@ -44,7 +46,9 @@ public class ChatController {
                           CollaborationMemberRepository memberRepository,
                           UserRepository userRepository,
                           SimpMessagingTemplate messagingTemplate,
-                          ChatMessageService chatMessageService) {
+                          ChatMessageService chatMessageService,
+                          com.huddle.backend.repository.ProjectFileRepository projectFileRepository,
+                          com.huddle.backend.service.CollaborationService collaborationService) {
         this.chatMessageRepository = chatMessageRepository;
         this.collabRequestRepository = collabRequestRepository;
         this.collaborationRepository = collaborationRepository;
@@ -52,6 +56,8 @@ public class ChatController {
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
         this.chatMessageService = chatMessageService;
+        this.projectFileRepository = projectFileRepository;
+        this.collaborationService = collaborationService;
     }
 
     // --- REST Endpoints for Unified Messaging 2.0 ---
@@ -124,11 +130,50 @@ public class ChatController {
             throw new IllegalStateException("Chat is only available for accepted requests");
         }
 
-        if (dto.getContent() == null || dto.getContent().trim().isEmpty()) {
+        // Handle file reference in DM
+        com.huddle.backend.model.ProjectFile referencedFile = null;
+        if (dto.getReferencedFileId() != null && !dto.getReferencedFileId().isEmpty()) {
+            referencedFile = projectFileRepository.findById(dto.getReferencedFileId())
+                    .orElseThrow(() -> new IllegalArgumentException("Referenced file not found"));
+
+            // Verify recipient has access to the file's collaboration
+            User recipient = sender.getId().equals(request.getRequestor().getId()) 
+                    ? request.getPoster() 
+                    : request.getRequestor();
+            
+            // For archived collaborations, check archive eligibility
+            String fileCollabId = referencedFile.getCollaboration().getId();
+            if (collaborationService.isCollaborationArchived(fileCollabId)) {
+                boolean recipientHasAccess = collaborationService.canAccessArchive(fileCollabId, recipient.getId());
+                if (!recipientHasAccess) {
+                    throw new SecurityException("Recipient does not have access to this archived project file");
+                }
+            } else {
+                // For active collaborations, check active membership
+                boolean recipientHasAccess = memberRepository.existsByCollaborationIdAndUserIdAndStatus(
+                        fileCollabId, 
+                        recipient.getId(), 
+                        MemberStatus.ACTIVE);
+                if (!recipientHasAccess) {
+                    throw new SecurityException("Recipient does not have access to this project file");
+                }
+            }
+
+            // Verify file is accessible (not in trash, not blocked by safety)
+            if (referencedFile.getIsInTrash()) {
+                throw new IllegalStateException("Cannot share a file that is in trash");
+            }
+            if (referencedFile.getSafetyState() != com.huddle.backend.model.SafetyState.CLEARED) {
+                throw new IllegalStateException("Cannot share a file pending safety review");
+            }
+        }
+
+        // Allow messages with either content, file reference, or both
+        if ((dto.getContent() == null || dto.getContent().trim().isEmpty()) && referencedFile == null) {
             return;
         }
 
-        String content = dto.getContent().trim();
+        String content = dto.getContent() != null ? dto.getContent().trim() : "";
         if (content.length() > 2000) {
             content = content.substring(0, 2000);
         }
@@ -137,6 +182,7 @@ public class ChatController {
         message.setCollabRequest(request);
         message.setSender(sender);
         message.setContent(content);
+        message.setReferencedFile(referencedFile);
 
         if (dto.getReplyToId() != null) {
             chatMessageRepository.findById(dto.getReplyToId()).ifPresent(replyMsg -> {
@@ -199,11 +245,32 @@ public class ChatController {
             throw new IllegalStateException("This collaboration workspace is archived and read-only");
         }
 
-        if (dto.getContent() == null || dto.getContent().trim().isEmpty()) {
+        // Handle file reference
+        com.huddle.backend.model.ProjectFile referencedFile = null;
+        if (dto.getReferencedFileId() != null && !dto.getReferencedFileId().isEmpty()) {
+            referencedFile = projectFileRepository.findById(dto.getReferencedFileId())
+                    .orElseThrow(() -> new IllegalArgumentException("Referenced file not found"));
+
+            // Verify file belongs to this collaboration
+            if (!referencedFile.getCollaboration().getId().equals(collaborationId)) {
+                throw new SecurityException("Referenced file does not belong to this collaboration");
+            }
+
+            // Verify file is accessible (not in trash, not blocked by safety)
+            if (referencedFile.getIsInTrash()) {
+                throw new IllegalStateException("Cannot share a file that is in trash");
+            }
+            if (referencedFile.getSafetyState() != com.huddle.backend.model.SafetyState.CLEARED) {
+                throw new IllegalStateException("Cannot share a file pending safety review");
+            }
+        }
+
+        // Allow messages with either content, file reference, or both
+        if ((dto.getContent() == null || dto.getContent().trim().isEmpty()) && referencedFile == null) {
             return;
         }
 
-        String content = dto.getContent().trim();
+        String content = dto.getContent() != null ? dto.getContent().trim() : "";
         if (content.length() > 2000) {
             content = content.substring(0, 2000);
         }
@@ -212,6 +279,7 @@ public class ChatController {
         message.setCollaboration(collaboration);
         message.setSender(sender);
         message.setContent(content);
+        message.setReferencedFile(referencedFile);
 
         if (dto.getReplyToId() != null) {
             chatMessageRepository.findById(dto.getReplyToId()).ifPresent(replyMsg -> {

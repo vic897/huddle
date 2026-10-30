@@ -691,6 +691,12 @@ export interface ChatMessageV2 {
   isDeleted?: boolean;
   deletedAt?: string;
   messageType?: "USER" | "SYSTEM";
+  referencedFileId?: string;
+  referencedFileName?: string;
+  referencedFileType?: string;
+  referencedFileSizeBytes?: number;
+  referencedFileAccessible?: boolean;
+  referencedFileStatus?: string;
 }
 
 export const messagingService = {

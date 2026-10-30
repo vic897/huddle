@@ -71,6 +71,7 @@ public class EndToEndLifecycleIntegrationTest {
     @Mock private ChatMessageReadRepository chatMessageReadRepository;
     @Mock private ConversationReadStateRepository conversationReadStateRepository;
     @Mock private MembershipAuditEventRepository auditEventRepository;
+    @Mock private ProjectFileRepository projectFileRepository;
 
     // Infrastructure / Helpers
     @Mock private PasswordEncoder passwordEncoder;
@@ -80,6 +81,7 @@ public class EndToEndLifecycleIntegrationTest {
     @Mock private NotificationService notificationService;
     @Mock private BlockService blockService;
     @Mock private SimpMessagingTemplate messagingTemplate;
+    @Mock private com.huddle.backend.config.FileStorageConfig fileStorageConfig;
 
     // Services Under Test
     private AuthService authService;
@@ -118,7 +120,10 @@ public class EndToEndLifecycleIntegrationTest {
                 notificationService,
                 auditEventRepository,
                 commitmentOfferRepository,
-                transferRepository
+                transferRepository,
+                projectFileRepository,
+                chatMessageRepository,
+                fileStorageConfig
         );
 
         collabRequestService = new CollabRequestService(

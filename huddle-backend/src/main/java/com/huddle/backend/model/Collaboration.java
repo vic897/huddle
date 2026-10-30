@@ -31,6 +31,8 @@ public class Collaboration {
 
     private Instant createdAt = Instant.now();
 
+    private Instant archivedAt;
+
     public enum CollaborationStatus {
         ACTIVE, ARCHIVED
     }

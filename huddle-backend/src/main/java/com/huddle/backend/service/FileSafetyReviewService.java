@@ -8,12 +8,16 @@ import com.huddle.backend.model.User;
 import com.huddle.backend.repository.CollaborationMemberRepository;
 import com.huddle.backend.repository.FileVersionRepository;
 import com.huddle.backend.repository.ProjectFileRepository;
+import com.huddle.backend.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -26,17 +30,23 @@ public class FileSafetyReviewService {
     private final FileService fileService;
     private final NotificationService notificationService;
     private final CollaborationMemberRepository collaborationMemberRepository;
+    private final UserRepository userRepository;
+
+    @Value("${safety.review.overdue.threshold.hours:24}")
+    private long overdueThresholdHours;
 
     public FileSafetyReviewService(ProjectFileRepository projectFileRepository,
                                    FileVersionRepository fileVersionRepository,
                                    FileService fileService,
                                    NotificationService notificationService,
-                                   CollaborationMemberRepository collaborationMemberRepository) {
+                                   CollaborationMemberRepository collaborationMemberRepository,
+                                   UserRepository userRepository) {
         this.projectFileRepository = projectFileRepository;
         this.fileVersionRepository = fileVersionRepository;
         this.fileService = fileService;
         this.notificationService = notificationService;
         this.collaborationMemberRepository = collaborationMemberRepository;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -226,6 +236,68 @@ public class FileSafetyReviewService {
                     message,
                     targetUrl
             );
+        }
+    }
+
+    /**
+     * Scheduled task to check for overdue safety review items and notify administrators.
+     * Runs daily at midnight to identify files/versions awaiting review beyond the threshold.
+     * Uses NotificationService idempotency to prevent duplicate notifications.
+     */
+    @Scheduled(cron = "${safety.review.schedule.cron:0 0 0 * * ?}")
+    @Transactional
+    public void checkOverdueSafetyReviews() {
+        Instant threshold = Instant.now().minus(Duration.ofHours(overdueThresholdHours));
+
+        // Find overdue files pending assessment
+        List<ProjectFile> overdueFiles = projectFileRepository
+                .findBySafetyStateAndSafetyAssessedAtBefore(SafetyState.PENDING_ASSESSMENT, threshold);
+
+        // Find overdue versions pending assessment
+        List<FileVersion> overdueVersions = fileVersionRepository
+                .findBySafetyStateAndSafetyAssessedAtBefore(SafetyState.PENDING_ASSESSMENT, threshold);
+
+        if (overdueFiles.isEmpty() && overdueVersions.isEmpty()) {
+            return; // No overdue items
+        }
+
+        // Find all administrators to notify
+        List<User> administrators = userRepository.findByRolesContaining("ROLE_ADMIN");
+
+        if (administrators.isEmpty()) {
+            return; // No administrators configured
+        }
+
+        // Notify administrators about overdue files
+        if (!overdueFiles.isEmpty()) {
+            String message = String.format("%d file(s) are pending safety review beyond the %d-hour threshold. Please review them in the admin panel.",
+                    overdueFiles.size(), overdueThresholdHours);
+            
+            for (User admin : administrators) {
+                notificationService.createNotification(
+                        admin,
+                        "OVERDUE_SAFETY_REVIEW_FILES",
+                        "Overdue File Safety Reviews",
+                        message,
+                        "/admin/file-safety"
+                );
+            }
+        }
+
+        // Notify administrators about overdue versions
+        if (!overdueVersions.isEmpty()) {
+            String message = String.format("%d file version(s) are pending safety review beyond the %d-hour threshold. Please review them in the admin panel.",
+                    overdueVersions.size(), overdueThresholdHours);
+            
+            for (User admin : administrators) {
+                notificationService.createNotification(
+                        admin,
+                        "OVERDUE_SAFETY_REVIEW_VERSIONS",
+                        "Overdue Version Safety Reviews",
+                        message,
+                        "/admin/file-safety"
+                );
+            }
         }
     }
 }

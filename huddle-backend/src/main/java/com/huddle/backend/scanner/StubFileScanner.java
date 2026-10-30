@@ -1,6 +1,7 @@
 package com.huddle.backend.scanner;
 
 import com.huddle.backend.model.SafetyState;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -21,8 +22,12 @@ import java.util.Set;
  * DEPENDENCY: This requires integration with a real scanner (e.g., ClamAV, VirusTotal API,
  * or similar) before production use. The stub ensures safe pending behavior but does not
  * provide actual malware detection.
+ * 
+ * This component is only active when scanner.clamav.enabled is not set to true.
+ * When ClamAV is enabled, ClamAVFileScanner will be used instead.
  */
 @Component
+@ConditionalOnProperty(name = "scanner.clamav.enabled", havingValue = "false", matchIfMissing = true)
 public class StubFileScanner implements FileScanner {
     
     // Prohibited file extensions - can be configured via application.yml in production

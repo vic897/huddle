@@ -67,6 +67,9 @@ public class CollaborationMember {
     @Column(name = "suspended_by", length = 36)
     private String suspendedBy;
 
+    @Column(name = "archive_eligible")
+    private Boolean archiveEligible = false;
+
     public enum MemberRole {
         OWNER, MEMBER
     }

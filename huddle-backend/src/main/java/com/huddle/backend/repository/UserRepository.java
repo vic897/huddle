@@ -13,4 +13,5 @@ public interface UserRepository extends JpaRepository<User, String> {
     Optional<User> findByGoogleSub(String googleSub);
     boolean existsByGoogleSub(String googleSub);
     List<User> findByInstitutionStatus(InstitutionStatus status);
+    List<User> findByRolesContaining(String role);
 }

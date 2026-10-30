@@ -62,4 +62,8 @@ public class ChatMessage {
     @Enumerated(EnumType.STRING)
     @Column(name = "message_type", length = 50)
     private MessageType messageType = MessageType.USER;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "referenced_file_id")
+    private ProjectFile referencedFile;
 }

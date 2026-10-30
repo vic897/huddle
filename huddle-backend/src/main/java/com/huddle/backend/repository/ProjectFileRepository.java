@@ -18,6 +18,8 @@ public interface ProjectFileRepository extends JpaRepository<ProjectFile, String
     List<ProjectFile> findByCollaborationIdAndParentFolderIdIsNullAndIsInTrashFalseOrderByIsFolderDescNameAsc(
             String collaborationId);
 
+    List<ProjectFile> findByCollaborationId(String collaborationId);
+
     List<ProjectFile> findByCollaborationIdAndIsInTrashTrueOrderByTrashedAtDesc(String collaborationId);
 
     List<ProjectFile> findByParentFolderId(String parentFolderId);
@@ -42,4 +44,6 @@ public interface ProjectFileRepository extends JpaRepository<ProjectFile, String
     List<ProjectFile> findBySafetyState(SafetyState safetyState);
 
     List<ProjectFile> findByIncompleteUploadTrueAndUploadStartedAtBefore(Instant cutoffTime);
+
+    List<ProjectFile> findBySafetyStateAndSafetyAssessedAtBefore(SafetyState safetyState, Instant threshold);
 }

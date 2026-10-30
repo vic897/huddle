@@ -1,5 +1,5 @@
 -- =============================================================================
--- V2__add_file_integration.sql
+-- V3__add_file_integration.sql
 -- File Integration for Huddle Project Files
 --
 -- Adds tables for project file management including files, folders, versions,

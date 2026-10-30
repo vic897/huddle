@@ -32,4 +32,7 @@ public interface CollaborationMemberRepository extends JpaRepository<Collaborati
 
     @Query("SELECT cm FROM CollaborationMember cm WHERE cm.departureStatus = 'ESCALATED_ADMIN'")
     List<CollaborationMember> findEscalatedDepartures();
+
+    @Query("SELECT COUNT(cm) > 0 FROM CollaborationMember cm WHERE cm.collaboration.id = :collaborationId AND cm.user.id = :userId AND cm.archiveEligible = true")
+    boolean existsByCollaborationIdAndUserIdAndArchiveEligibleTrue(@Param("collaborationId") String collaborationId, @Param("userId") String userId);
 }

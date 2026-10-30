@@ -22,7 +22,6 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 
 import java.security.Principal;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -60,6 +59,9 @@ public class CollaborationChatSecurityTest {
     @Mock
     private com.huddle.backend.repository.OwnershipTransferRequestRepository ownershipTransferRequestRepository;
 
+    @Mock
+    private com.huddle.backend.repository.ProjectFileRepository projectFileRepository;
+
     private CollaborationController collaborationController;
     private ChatController chatController;
 
@@ -77,7 +79,9 @@ public class CollaborationChatSecurityTest {
                 memberRepository,
                 userRepository,
                 messagingTemplate,
-                chatMessageService
+                chatMessageService,
+                projectFileRepository,
+                collaborationService
         );
 
         activeMember = new User();

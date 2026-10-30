@@ -6,7 +6,8 @@ import {
   UnifiedConversation, 
   ChatMessageV2, 
   commitmentOfferService,
-  CommitmentOffer 
+  CommitmentOffer,
+  fileService
 } from "@/lib/api";
 import { getWsUrl } from "@/lib/api";
 import { Client } from "@stomp/stompjs";
@@ -36,6 +37,11 @@ export default function MessagesPage() {
   const [actionOfferId, setActionOfferId] = useState<string | null>(null);
   const [offerActionMsg, setOfferActionMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // File reference state
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [showFilePicker, setShowFilePicker] = useState(false);
+  const [availableFiles, setAvailableFiles] = useState<any[]>([]);
+
   // Create Offer Modal state
   const [showCreateOfferModal, setShowCreateOfferModal] = useState(false);
   const [offerRole, setOfferRole] = useState("");
@@ -47,6 +53,15 @@ export default function MessagesPage() {
   const stompClientRef = useRef<Client | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
+
+  // Helper: Format file size
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
 
   useEffect(() => {
     const token = getToken();
@@ -98,6 +113,29 @@ export default function MessagesPage() {
       return () => clearTimeout(timer);
     }
   }, [offerActionMsg]);
+
+  // Load available files when file picker opens or conversation changes
+  useEffect(() => {
+    if (showFilePicker && selectedConv?.conversationType === "COLLABORATION" && selectedConv.projectId) {
+      const loadFiles = async () => {
+        try {
+          const response = await fileService.listFiles(selectedConv.projectId!);
+          // Filter out folders and trashed files
+          const accessibleFiles = response.files.filter(
+            (f: any) => !f.isFolder && !f.isInTrash && f.safetyState === "CLEARED"
+          );
+          setAvailableFiles(accessibleFiles);
+        } catch (err) {
+          console.error("Failed to load files:", err);
+          setAvailableFiles([]);
+        }
+      };
+      loadFiles();
+    }
+  }, [showFilePicker, selectedConv]);
+
+  // Check if current collaboration is archived
+  const isArchived = selectedConv?.conversationType === "COLLABORATION" && selectedConv?.status === "ARCHIVED";
 
   // 2. Fetch messages when conversation changes
   useEffect(() => {
@@ -172,11 +210,13 @@ export default function MessagesPage() {
       body: JSON.stringify({
         content: inputMessage.trim(),
         replyToId: replyTo?.id,
+        referencedFileId: selectedFileId,
       }),
     });
 
     setInputMessage("");
     setReplyTo(null);
+    setSelectedFileId(null);
   };
 
   const handleEditSubmit = async (messageId: string) => {
@@ -623,7 +663,40 @@ export default function MessagesPage() {
                             </button>
                           </div>
                         ) : (
-                          <p className={`${isDeleted ? "italic text-gray-400" : ""}`}>{msg.content}</p>
+                          <>
+                            <p className={`${isDeleted ? "italic text-gray-400" : ""}`}>{msg.content}</p>
+                            
+                            {/* File Reference Display */}
+                            {msg.referencedFileId && (
+                              <div className="mt-2 p-2.5 rounded-lg bg-black/20 border border-white/10">
+                                <div className="flex items-center gap-2">
+                                  <FileText className="w-4 h-4 text-purple-400" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-white truncate">{msg.referencedFileName}</p>
+                                    <p className="text-[10px] text-gray-400">
+                                      {msg.referencedFileSizeBytes ? formatFileSize(msg.referencedFileSizeBytes) : ''}
+                                      {msg.referencedFileType && ` • ${msg.referencedFileType.split('/')[1]?.toUpperCase() || 'FILE'}`}
+                                    </p>
+                                  </div>
+                                  {msg.referencedFileAccessible === false && (
+                                    <div className="flex items-center gap-1 text-[10px] text-amber-400">
+                                      <AlertCircle className="w-3 h-3" />
+                                      <span>{msg.referencedFileStatus === 'IN_TRASH' ? 'In Trash' : msg.referencedFileStatus === 'SAFETY_BLOCKED' ? 'Blocked' : 'Unavailable'}</span>
+                                    </div>
+                                  )}
+                                  {msg.referencedFileAccessible === true && selectedConv.projectId && (
+                                    <a
+                                      href={`/collaborations/${selectedConv.projectId}#files`}
+                                      className="p-1.5 rounded bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white transition"
+                                      title="View in Files"
+                                    >
+                                      <ArrowRight className="w-3.5 h-3.5" />
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </>
                         )}
 
                         <div className="flex items-center justify-end gap-1.5 mt-1 text-[10px] text-gray-300/70">
@@ -683,6 +756,14 @@ export default function MessagesPage() {
                 </div>
               )}
 
+              {/* Archive Banner */}
+              {isArchived && (
+                <div className="px-6 py-2 bg-amber-500/10 border-t border-amber-500/20 flex items-center gap-2 text-xs backdrop-blur-md z-10">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-amber-200">This project is archived. Chat is read-only.</span>
+                </div>
+              )}
+
               {/* Reply Header Banner */}
               {replyTo && (
                 <div className="px-6 py-2.5 bg-huddle-purple/10 border-t border-huddle-purple/20 flex items-center justify-between text-xs backdrop-blur-md z-10">
@@ -697,17 +778,45 @@ export default function MessagesPage() {
               {/* Input Box */}
               <form onSubmit={handleSendMessage} className="p-4 bg-[#0e0e14]/90 backdrop-blur-md border-t border-white/[0.06] flex items-center gap-3 z-10">
                 <div className="flex-1 relative flex items-center">
+                  {/* File attachment button - only for collaboration chats that are not archived */}
+                  {selectedConv.conversationType === "COLLABORATION" && selectedConv.projectId && !isArchived && (
+                    <button
+                      type="button"
+                      onClick={() => setShowFilePicker(true)}
+                      className="mr-2 p-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-gray-400 hover:text-purple-400 transition"
+                      title="Attach project file"
+                    >
+                      <FileText className="w-4 h-4" />
+                    </button>
+                  )}
+                  
+                  {/* Selected file indicator */}
+                  {selectedFileId && (
+                    <div className="mr-2 px-2 py-1 rounded-md bg-purple-500/20 border border-purple-500/30 flex items-center gap-1 text-[10px] text-purple-300">
+                      <FileText className="w-3 h-3" />
+                      <span className="max-w-[100px] truncate">File attached</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFileId(null)}
+                        className="ml-1 hover:text-white"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                  
                   <input
                     type="text"
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
-                    placeholder="Type a message..."
-                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-none transition-all duration-300 focus:border-huddle-pink/50 focus:bg-white/[0.06] focus:shadow-[0_0_20px_rgba(255,71,133,0.15)]"
+                    placeholder={isArchived ? "Chat is read-only (project archived)" : "Type a message..."}
+                    disabled={isArchived}
+                    className={`flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-purple-500/50 transition-colors ${isArchived ? 'opacity-50 cursor-not-allowed' : ''}`}
                   />
                 </div>
                 <button
                   type="submit"
-                  disabled={!inputMessage.trim()}
+                  disabled={(!inputMessage.trim() && !selectedFileId)}
                   className="p-3 rounded-xl bg-gradient-to-r from-huddle-coral to-huddle-pink text-white font-medium shadow-[0_0_12px_rgba(255,71,133,0.3)] hover:opacity-95 active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all duration-200"
                 >
                   <Send className="w-4 h-4" />
@@ -820,6 +929,68 @@ export default function MessagesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── File Picker Modal ─── */}
+      {showFilePicker && selectedConv && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="bg-huddle-dark/95 backdrop-blur-xl border border-white/10 rounded-2xl p-6 max-w-lg w-full shadow-2xl relative max-h-[80vh] flex flex-col">
+            <button
+              onClick={() => setShowFilePicker(false)}
+              className="absolute top-5 right-5 text-gray-400 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white shadow-lg">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Attach Project File</h3>
+                <p className="text-xs text-gray-400">Share a file from your workspace</p>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar mb-4">
+              {availableFiles.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 text-sm">
+                  <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>No files available in this workspace</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {availableFiles.map((file) => (
+                    <button
+                      key={file.id}
+                      onClick={() => {
+                        setSelectedFileId(file.id);
+                        setShowFilePicker(false);
+                      }}
+                      className="w-full p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.08] hover:border-purple-500/30 text-left transition-all flex items-center gap-3"
+                    >
+                      <FileText className="w-5 h-5 text-purple-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{file.name}</p>
+                        <p className="text-xs text-gray-400">
+                          {file.sizeBytes ? formatFileSize(file.sizeBytes) : ''}
+                          {file.fileType && ` • ${file.fileType.split('/')[1]?.toUpperCase() || 'FILE'}`}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setShowFilePicker(false)}
+              className="w-full py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.10] text-gray-300 text-sm font-medium border border-white/10 transition"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}

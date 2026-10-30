@@ -60,6 +60,24 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
 
+# Malware Scanner Configuration
+scanner:
+  clamav:
+    enabled: ${SCANNER_CLAMAV_ENABLED:false}
+    host: ${SCANNER_CLAMAV_HOST:localhost}
+    port: ${SCANNER_CLAMAV_PORT:3310}
+    timeout: ${SCANNER_CLAMAV_TIMEOUT:30}
+    max-file-size: ${SCANNER_CLAMAV_MAX_FILE_SIZE:262144000}
+
+# Safety Review Configuration
+safety:
+  review:
+    overdue:
+      threshold:
+        hours: ${SAFETY_REVIEW_OVERDUE_THRESHOLD_HOURS:24}
+    schedule:
+      cron: ${SAFETY_REVIEW_SCHEDULE_CRON:0 0 0 * * ?}
+
 ---
 spring:
   config:

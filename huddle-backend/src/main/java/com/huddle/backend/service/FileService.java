@@ -32,6 +32,11 @@ public class FileService {
     private static final long MAX_FILE_SIZE_BYTES = 250 * 1024 * 1024; // 250 MB
     private static final long MAX_PROJECT_STORAGE_BYTES = 10L * 1024 * 1024 * 1024; // 10 GB
     private static final int MAX_VERSIONS_PER_FILE = 10; // Maximum versions to retain
+    
+    // Storage quota warning thresholds (as percentages of MAX_PROJECT_STORAGE_BYTES)
+    private static final double QUOTA_WARNING_80_PERCENT = 0.80;
+    private static final double QUOTA_WARNING_95_PERCENT = 0.95;
+    private static final double QUOTA_WARNING_100_PERCENT = 1.00;
 
     private final ProjectFileRepository projectFileRepository;
     private final CollaborationRepository collaborationRepository;
@@ -40,6 +45,7 @@ public class FileService {
     private final FileStorageConfig fileStorageConfig;
     private final CollaborationService collaborationService;
     private final FileScanner fileScanner;
+    private final NotificationService notificationService;
 
     public FileService(ProjectFileRepository projectFileRepository,
                       CollaborationRepository collaborationRepository,
@@ -47,7 +53,8 @@ public class FileService {
                       FileVersionRepository fileVersionRepository,
                       FileStorageConfig fileStorageConfig,
                       CollaborationService collaborationService,
-                      FileScanner fileScanner) {
+                      FileScanner fileScanner,
+                      NotificationService notificationService) {
         this.projectFileRepository = projectFileRepository;
         this.collaborationRepository = collaborationRepository;
         this.collaborationMemberRepository = collaborationMemberRepository;
@@ -55,15 +62,21 @@ public class FileService {
         this.fileStorageConfig = fileStorageConfig;
         this.collaborationService = collaborationService;
         this.fileScanner = fileScanner;
+        this.notificationService = notificationService;
     }
 
     @Transactional(readOnly = true)
     public FileListResponse listFiles(String collaborationId, String folderId, User currentUser) {
-        Collaboration collaboration = collaborationRepository.findById(collaborationId)
-                .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
-
-        if (!collaborationService.isMemberActive(collaborationId, currentUser.getId())) {
-            throw new SecurityException("You are not an active member of this collaboration");
+        // Check archive eligibility for archived collaborations
+        if (collaborationService.isCollaborationArchived(collaborationId)) {
+            if (!collaborationService.canAccessArchive(collaborationId, currentUser.getId())) {
+                throw new SecurityException("You do not have access to this archived project");
+            }
+        } else {
+            // For active collaborations, check active membership
+            if (!collaborationService.isMemberActive(collaborationId, currentUser.getId())) {
+                throw new SecurityException("You are not an active member of this collaboration");
+            }
         }
 
         List<ProjectFile> files;
@@ -95,11 +108,16 @@ public class FileService {
 
     @Transactional(readOnly = true)
     public FileListResponse listTrash(String collaborationId, User currentUser) {
-        Collaboration collaboration = collaborationRepository.findById(collaborationId)
-                .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
-
-        if (!collaborationService.isMemberActive(collaborationId, currentUser.getId())) {
-            throw new SecurityException("You are not an active member of this collaboration");
+        // Check archive eligibility for archived collaborations
+        if (collaborationService.isCollaborationArchived(collaborationId)) {
+            if (!collaborationService.canAccessArchive(collaborationId, currentUser.getId())) {
+                throw new SecurityException("You do not have access to this archived project");
+            }
+        } else {
+            // For active collaborations, check active membership
+            if (!collaborationService.isMemberActive(collaborationId, currentUser.getId())) {
+                throw new SecurityException("You are not an active member of this collaboration");
+            }
         }
 
         List<ProjectFile> trashedFiles = projectFileRepository
@@ -115,6 +133,11 @@ public class FileService {
     @Transactional
     public FileUploadResponse uploadFile(String collaborationId, String parentFolderId,
                                         MultipartFile file, User currentUser) throws IOException {
+        // Block uploads for archived collaborations
+        if (collaborationService.isCollaborationArchived(collaborationId)) {
+            throw new IllegalStateException("Cannot upload files to an archived project");
+        }
+
         Collaboration collaboration = collaborationRepository.findById(collaborationId)
                 .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
 
@@ -206,6 +229,9 @@ public class FileService {
         savedFile.setIncompleteUpload(false); // Upload is complete, awaiting decision
         savedFile = projectFileRepository.save(savedFile);
 
+        // Check and send quota warnings after successful upload
+        checkAndNotifyQuotaWarnings(collaborationId);
+
         return new FileUploadResponse(
                 savedFile.getId(),
                 savedFile.getName(),
@@ -221,6 +247,11 @@ public class FileService {
     @Transactional
     public FileItemResponse createFolder(String collaborationId, String parentFolderId,
                                          String folderName, User currentUser) {
+        // Block folder creation for archived collaborations
+        if (collaborationService.isCollaborationArchived(collaborationId)) {
+            throw new IllegalStateException("Cannot create folders in an archived project");
+        }
+
         Collaboration collaboration = collaborationRepository.findById(collaborationId)
                 .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
 
@@ -265,6 +296,11 @@ public class FileService {
 
     @Transactional
     public FileItemResponse renameFile(String collaborationId, String fileId, String newName, User currentUser) {
+        // Block renames for archived collaborations
+        if (collaborationService.isCollaborationArchived(collaborationId)) {
+            throw new IllegalStateException("Cannot rename files in an archived project");
+        }
+
         Collaboration collaboration = collaborationRepository.findById(collaborationId)
                 .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
 
@@ -299,6 +335,11 @@ public class FileService {
 
     @Transactional
     public FileItemResponse moveFile(String collaborationId, String fileId, String targetFolderId, User currentUser) {
+        // Block moves for archived collaborations
+        if (collaborationService.isCollaborationArchived(collaborationId)) {
+            throw new IllegalStateException("Cannot move files in an archived project");
+        }
+
         Collaboration collaboration = collaborationRepository.findById(collaborationId)
                 .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
 
@@ -346,6 +387,11 @@ public class FileService {
 
     @Transactional
     public void moveToTrash(String collaborationId, String fileId, User currentUser) {
+        // Block trash operations for archived collaborations
+        if (collaborationService.isCollaborationArchived(collaborationId)) {
+            throw new IllegalStateException("Cannot move files to trash in an archived project");
+        }
+
         Collaboration collaboration = collaborationRepository.findById(collaborationId)
                 .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
 
@@ -371,6 +417,11 @@ public class FileService {
 
     @Transactional
     public FileItemResponse restoreFromTrash(String collaborationId, String fileId, User currentUser) {
+        // Block restore operations for archived collaborations
+        if (collaborationService.isCollaborationArchived(collaborationId)) {
+            throw new IllegalStateException("Cannot restore files in an archived project");
+        }
+
         Collaboration collaboration = collaborationRepository.findById(collaborationId)
                 .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
 
@@ -439,11 +490,16 @@ public class FileService {
 
     @Transactional(readOnly = true)
     public StorageUsageResponse getStorageUsage(String collaborationId, User currentUser) {
-        Collaboration collaboration = collaborationRepository.findById(collaborationId)
-                .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
-
-        if (!collaborationService.isMemberActive(collaborationId, currentUser.getId())) {
-            throw new SecurityException("You are not an active member of this collaboration");
+        // Check archive eligibility for archived collaborations
+        if (collaborationService.isCollaborationArchived(collaborationId)) {
+            if (!collaborationService.canAccessArchive(collaborationId, currentUser.getId())) {
+                throw new SecurityException("You do not have access to this archived project");
+            }
+        } else {
+            // For active collaborations, check active membership
+            if (!collaborationService.isMemberActive(collaborationId, currentUser.getId())) {
+                throw new SecurityException("You are not an active member of this collaboration");
+            }
         }
 
         Long usedBytes = projectFileRepository.calculateStorageUsed(collaborationId);
@@ -741,6 +797,9 @@ public class FileService {
         // Enforce version limit
         enforceVersionLimit(fileId);
 
+        // Check and send quota warnings after successful replacement
+        checkAndNotifyQuotaWarnings(collaborationId);
+
         return mapToFileItemResponse(savedFile);
     }
 
@@ -913,6 +972,56 @@ public class FileService {
                     fileVersionRepository.delete(oldVersion);
                 }
             }
+        }
+    }
+
+    /**
+     * Check storage quota usage and send warnings to project members at threshold levels.
+     * Warnings are sent at 80%, 95%, and 100% of quota usage.
+     * Duplicate notifications are prevented by NotificationService's idempotency check.
+     */
+    @Transactional
+    private void checkAndNotifyQuotaWarnings(String collaborationId) {
+        Long storageUsed = projectFileRepository.calculateStorageUsedIncludingVersions(collaborationId);
+        if (storageUsed == null) {
+            storageUsed = 0L;
+        }
+
+        double usageRatio = (double) storageUsed / MAX_PROJECT_STORAGE_BYTES;
+        String notificationType = null;
+        String title = null;
+        String message = null;
+
+        if (usageRatio >= QUOTA_WARNING_100_PERCENT) {
+            notificationType = "STORAGE_QUOTA_FULL";
+            title = "Storage Quota Reached";
+            message = "Your project has reached its 10 GB storage limit. Please delete unnecessary files or contact support for assistance.";
+        } else if (usageRatio >= QUOTA_WARNING_95_PERCENT) {
+            notificationType = "STORAGE_QUOTA_95_PERCENT";
+            title = "Storage Quota 95% Full";
+            message = "Your project is at 95% of its 10 GB storage limit. Please consider deleting unnecessary files to avoid upload restrictions.";
+        } else if (usageRatio >= QUOTA_WARNING_80_PERCENT) {
+            notificationType = "STORAGE_QUOTA_80_PERCENT";
+            title = "Storage Quota 80% Full";
+            message = "Your project is at 80% of its 10 GB storage limit. Please consider managing your files to ensure continued availability.";
+        } else {
+            // No warning needed
+            return;
+        }
+
+        // Notify all active project members
+        List<CollaborationMember> activeMembers = collaborationMemberRepository
+                .findByCollaborationIdAndStatus(collaborationId, CollaborationMember.MemberStatus.ACTIVE);
+
+        String targetUrl = "/collaborations/" + collaborationId + "/files";
+        for (CollaborationMember member : activeMembers) {
+            notificationService.createNotification(
+                    member.getUser(),
+                    notificationType,
+                    title,
+                    message,
+                    targetUrl
+            );
         }
     }
 }

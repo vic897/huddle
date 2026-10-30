@@ -8,4 +8,5 @@ import lombok.Setter;
 public class ChatMessageDto {
     private String content;
     private String replyToId;
+    private String referencedFileId;
 }

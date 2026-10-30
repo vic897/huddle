@@ -349,4 +349,42 @@ public class CollaborationController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
         }
     }
+
+    @PostMapping("/api/collaborations/{id}/archive")
+    public ResponseEntity<?> archiveCollaboration(@AuthenticationPrincipal User currentUser,
+                                                  @PathVariable String id) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+
+        try {
+            collaborationService.archiveCollaboration(id, currentUser);
+            return ResponseEntity.ok(Map.of("message", "Collaboration archived successfully"));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/api/collaborations/{id}")
+    public ResponseEntity<?> deleteCollaboration(@AuthenticationPrincipal User currentUser,
+                                                @PathVariable String id) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+
+        try {
+            collaborationService.deleteCollaboration(id, currentUser);
+            return ResponseEntity.ok(Map.of("message", "Collaboration deleted permanently"));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        }
+    }
 }

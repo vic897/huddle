@@ -11,10 +11,14 @@ import com.huddle.backend.repository.*;
 import com.huddle.backend.model.OwnershipTransferRequest;
 import com.huddle.backend.model.OwnershipTransferRequest.TransferStatus;
 import com.huddle.backend.dto.OwnershipTransferResponse;
+import com.huddle.backend.config.FileStorageConfig;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -31,6 +35,9 @@ public class CollaborationService {
     private final MembershipAuditEventRepository auditEventRepository;
     private final CommitmentOfferRepository commitmentOfferRepository;
     private final OwnershipTransferRequestRepository ownershipTransferRequestRepository;
+    private final ProjectFileRepository projectFileRepository;
+    private final ChatMessageRepository chatMessageRepository;
+    private final FileStorageConfig fileStorageConfig;
 
     public CollaborationService(CollaborationRepository collaborationRepository,
                                 CollaborationMemberRepository memberRepository,
@@ -38,7 +45,10 @@ public class CollaborationService {
                                 NotificationService notificationService,
                                 MembershipAuditEventRepository auditEventRepository,
                                 CommitmentOfferRepository commitmentOfferRepository,
-                                OwnershipTransferRequestRepository ownershipTransferRequestRepository) {
+                                OwnershipTransferRequestRepository ownershipTransferRequestRepository,
+                                ProjectFileRepository projectFileRepository,
+                                ChatMessageRepository chatMessageRepository,
+                                FileStorageConfig fileStorageConfig) {
         this.collaborationRepository = collaborationRepository;
         this.memberRepository = memberRepository;
         this.collabRequestRepository = collabRequestRepository;
@@ -46,6 +56,9 @@ public class CollaborationService {
         this.auditEventRepository = auditEventRepository;
         this.commitmentOfferRepository = commitmentOfferRepository;
         this.ownershipTransferRequestRepository = ownershipTransferRequestRepository;
+        this.projectFileRepository = projectFileRepository;
+        this.chatMessageRepository = chatMessageRepository;
+        this.fileStorageConfig = fileStorageConfig;
     }
 
     @Transactional
@@ -551,5 +564,150 @@ public class CollaborationService {
         audit.setReason(reason);
         audit.setDetails(details);
         auditEventRepository.save(audit);
+    }
+
+    // Archive closure mechanism
+    @Transactional
+    public void archiveCollaboration(String collaborationId, User currentUser) {
+        Collaboration collaboration = collaborationRepository.findById(collaborationId)
+                .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
+
+        assertIsActiveOwner(collaboration, currentUser);
+
+        if (collaboration.getStatus() == CollaborationStatus.ARCHIVED) {
+            throw new IllegalStateException("Collaboration is already archived");
+        }
+
+        // Mark all currently active members as archive-eligible
+        List<CollaborationMember> activeMembers = memberRepository
+                .findByCollaborationIdAndStatus(collaborationId, MemberStatus.ACTIVE);
+        
+        for (CollaborationMember member : activeMembers) {
+            member.setArchiveEligible(true);
+            memberRepository.save(member);
+        }
+
+        // Set collaboration to archived status
+        collaboration.setStatus(CollaborationStatus.ARCHIVED);
+        collaboration.setArchivedAt(Instant.now());
+        collaborationRepository.save(collaboration);
+
+        // Record audit
+        recordAudit(collaborationId, "SYSTEM", currentUser.getId(),
+                MembershipEventType.COLLABORATION_ARCHIVED, "Collaboration archived by owner", null);
+
+        // Notify all active members
+        for (CollaborationMember member : activeMembers) {
+            notificationService.createNotification(
+                    member.getUser(),
+                    "COLLABORATION_ARCHIVED",
+                    "Project archived",
+                    "The project \"" + collaboration.getProjectPost().getTitle() + "\" has been archived. Files remain accessible for download.",
+                    "/collaborations/" + collaborationId
+            );
+        }
+    }
+
+    // Archive eligibility helper methods
+    @Transactional(readOnly = true)
+    public boolean isArchiveEligible(String collaborationId, String userId) {
+        Collaboration collaboration = collaborationRepository.findById(collaborationId)
+                .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
+
+        if (collaboration.getStatus() != CollaborationStatus.ARCHIVED) {
+            // For active collaborations, use regular active membership check
+            return isMemberActive(collaborationId, userId);
+        }
+
+        // For archived collaborations, check archive eligibility
+        return memberRepository.existsByCollaborationIdAndUserIdAndArchiveEligibleTrue(
+                collaborationId, userId);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canAccessArchive(String collaborationId, String userId) {
+        Collaboration collaboration = collaborationRepository.findById(collaborationId)
+                .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
+
+        if (collaboration.getStatus() != CollaborationStatus.ARCHIVED) {
+            return false;
+        }
+
+        return isArchiveEligible(collaborationId, userId);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isCollaborationArchived(String collaborationId) {
+        Collaboration collaboration = collaborationRepository.findById(collaborationId)
+                .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
+        return collaboration.getStatus() == CollaborationStatus.ARCHIVED;
+    }
+
+    // Archive deletion mechanism
+    @Transactional
+    public void deleteCollaboration(String collaborationId, User currentUser) {
+        Collaboration collaboration = collaborationRepository.findById(collaborationId)
+                .orElseThrow(() -> new NoSuchElementException("Collaboration not found"));
+
+        assertIsActiveOwner(collaboration, currentUser);
+
+        if (collaboration.getStatus() != CollaborationStatus.ARCHIVED) {
+            throw new IllegalStateException("Only archived collaborations can be permanently deleted");
+        }
+
+        // Delete all files in the collaboration (physical storage and database records)
+        List<com.huddle.backend.model.ProjectFile> allFiles = projectFileRepository
+                .findByCollaborationId(collaborationId);
+        
+        for (com.huddle.backend.model.ProjectFile file : allFiles) {
+            if (file.getIsFolder()) {
+                deleteFolderHierarchy(file);
+            } else {
+                deletePhysicalFile(file);
+            }
+            projectFileRepository.delete(file);
+        }
+
+        // Delete all chat messages
+        List<ChatMessage> chatMessages = chatMessageRepository
+                .findByCollaborationIdOrderBySentAtAsc(collaborationId);
+        chatMessageRepository.deleteAll(chatMessages);
+
+        // Delete all membership records
+        List<CollaborationMember> members = memberRepository.findByCollaborationId(collaborationId);
+        memberRepository.deleteAll(members);
+
+        // Delete the collaboration itself
+        collaborationRepository.delete(collaboration);
+
+        // Record audit
+        recordAudit(collaborationId, "SYSTEM", currentUser.getId(),
+                MembershipEventType.COLLABORATION_ARCHIVED, "Collaboration permanently deleted by owner", null);
+    }
+
+    private void deletePhysicalFile(com.huddle.backend.model.ProjectFile file) {
+        try {
+            if (file.getStoragePath() != null) {
+                Path filePath = fileStorageConfig.getStorageRoot().resolve(file.getStoragePath());
+                Files.deleteIfExists(filePath);
+            }
+        } catch (IOException e) {
+            // Log error but continue with deletion
+            System.err.println("Failed to delete physical file: " + file.getStoragePath());
+        }
+    }
+
+    private void deleteFolderHierarchy(com.huddle.backend.model.ProjectFile folder) {
+        List<com.huddle.backend.model.ProjectFile> children = projectFileRepository
+                .findByParentFolderId(folder.getId());
+        
+        for (com.huddle.backend.model.ProjectFile child : children) {
+            if (child.getIsFolder()) {
+                deleteFolderHierarchy(child);
+            } else {
+                deletePhysicalFile(child);
+            }
+            projectFileRepository.delete(child);
+        }
     }
 }
