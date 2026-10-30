@@ -74,4 +74,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(authInterceptor);
     }
+
+    @Override
+    public void configureClientOutboundChannel(ChannelRegistration registration) {
+        registration.interceptors(authInterceptor);
+    }
 }

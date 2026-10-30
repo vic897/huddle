@@ -39,11 +39,39 @@ public class CollaborationMember {
 
     private Instant joinedAt = Instant.now();
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "departure_status")
+    private DepartureStatus departureStatus = DepartureStatus.NONE;
+
+    @Column(name = "departure_reason", length = 1000)
+    private String departureReason;
+
+    @Column(name = "departure_requested_at")
+    private Instant departureRequestedAt;
+
+    @Column(name = "departure_resolved_at")
+    private Instant departureResolvedAt;
+
+    @Column(name = "departure_escalated_at")
+    private Instant departureEscalatedAt;
+
+    @Column(name = "removal_reason", length = 1000)
+    private String removalReason;
+
+    @Column(name = "suspension_reason", length = 1000)
+    private String suspensionReason;
+
+    @Column(name = "suspended_at")
+    private Instant suspendedAt;
+
+    @Column(name = "suspended_by", length = 36)
+    private String suspendedBy;
+
     public enum MemberRole {
         OWNER, MEMBER
     }
 
     public enum MemberStatus {
-        ACTIVE, LEFT, REMOVED
+        ACTIVE, LEFT, REMOVED, SUSPENDED
     }
 }

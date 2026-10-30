@@ -316,10 +316,30 @@ export interface CollaborationMember {
   id: string;
   user: UserProfile;
   role: "OWNER" | "MEMBER";
-  status: "ACTIVE" | "LEFT" | "REMOVED";
+  status: "ACTIVE" | "LEFT" | "REMOVED" | "SUSPENDED";
   joinedAt: string;
+  departureStatus?: "NONE" | "PENDING_APPROVAL" | "ESCALATED_ADMIN" | "APPROVED" | "DECLINED";
+  departureReason?: string;
+  departureRequestedAt?: string;
+  removalReason?: string;
+  suspensionReason?: string;
+  suspendedAt?: string;
+  suspendedBy?: string;
 }
 
+
+export interface OwnershipTransferInfo {
+  id: string;
+  collaborationId: string;
+  projectTitle: string;
+  senderId: string;
+  senderName: string;
+  recipientId: string;
+  recipientName: string;
+  status: "PENDING" | "ACCEPTED" | "DECLINED" | "CANCELLED";
+  createdAt: string;
+  respondedAt?: string | null;
+}
 export interface Collaboration {
   id: string;
   projectId: string;
@@ -330,6 +350,7 @@ export interface Collaboration {
   createdAt: string;
   members: CollaborationMember[];
   conversationRequestId?: string | null;
+  pendingOwnershipTransfer?: OwnershipTransferInfo | null;
 }
 
 export const collaborationService = {
@@ -341,8 +362,26 @@ export const collaborationService = {
     apiFetch(`/collaborations/${collaborationId}/messages/read`, { method: "PUT" }),
   leaveCollaboration: (id: string): Promise<void> =>
     apiFetch(`/collaborations/${id}/leave`, { method: "POST" }),
-  removeMember: (collaborationId: string, userId: string): Promise<void> =>
-    apiFetch(`/collaborations/${collaborationId}/members/${userId}`, { method: "DELETE" }),
+  requestDeparture: (id: string, reason?: string): Promise<void> =>
+    apiFetch(`/collaborations/${id}/departure/request`, { method: "POST", body: JSON.stringify({ reason }) }),
+  resolveDeparture: (id: string, userId: string, approved: boolean): Promise<void> =>
+    apiFetch(`/collaborations/${id}/departure/resolve/${userId}`, { method: "POST", body: JSON.stringify({ approved }) }),
+  removeMember: (collaborationId: string, userId: string, reason?: string): Promise<void> =>
+    apiFetch(`/collaborations/${collaborationId}/members/${userId}`, { method: "DELETE", body: reason ? JSON.stringify({ reason }) : undefined }),
+  suspendMember: (collaborationId: string, userId: string, reason: string): Promise<void> =>
+    apiFetch(`/collaborations/${collaborationId}/members/${userId}/suspend`, { method: "POST", body: JSON.stringify({ reason }) }),
+  reinstateMember: (collaborationId: string, userId: string): Promise<void> =>
+    apiFetch(`/collaborations/${collaborationId}/members/${userId}/reinstate`, { method: "POST" }),
+  // 2-step ownership transfer: owner proposes, recipient explicitly accepts/declines
+  initiateOwnershipTransfer: (collaborationId: string, newOwnerId: string): Promise<{ id: string; status: string }> =>
+    apiFetch(`/collaborations/${collaborationId}/transfer-ownership`, { method: "POST", body: JSON.stringify({ newOwnerId }) }),
+  acceptOwnershipTransfer: (transferId: string): Promise<{ id: string; status: string }> =>
+    apiFetch(`/collaborations/transfer-ownership/${transferId}/accept`, { method: "POST" }),
+  declineOwnershipTransfer: (transferId: string): Promise<{ id: string; status: string }> =>
+    apiFetch(`/collaborations/transfer-ownership/${transferId}/decline`, { method: "POST" }),
+  /** @deprecated Use initiateOwnershipTransfer — kept for backwards compatibility */
+  transferOwnership: (collaborationId: string, newOwnerId: string): Promise<{ id: string; status: string }> =>
+    apiFetch(`/collaborations/${collaborationId}/transfer-ownership`, { method: "POST", body: JSON.stringify({ newOwnerId }) }),
 };
 
 export interface AdminReport {
@@ -362,4 +401,111 @@ export const adminService = {
     apiFetch(`/admin/reports/${id}/resolve`, { method: "PUT" }),
   dismissReport: (id: string): Promise<AdminReport> =>
     apiFetch(`/admin/reports/${id}/dismiss`, { method: "PUT" }),
+};
+
+export interface CommitmentOffer {
+  id: string;
+  collabRequestId?: string;
+  projectId: string;
+  projectTitle: string;
+  recipientId: string;
+  recipientName: string;
+  recipientAvatar?: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar?: string;
+  proposedRole: string;
+  terms?: string;
+  status: "PENDING" | "ACCEPTED" | "DECLINED" | "WITHDRAWN" | "EXPIRED";
+  reissueRequired: boolean;
+  createdAt: string;
+  respondedAt?: string;
+  expiresAt?: string;
+}
+
+export const commitmentOfferService = {
+  createOffer: (dto: { projectId: string; recipientId: string; proposedRole: string; terms?: string; collabRequestId?: string; durationDays?: number }): Promise<CommitmentOffer> =>
+    apiFetch("/commitment-offers", { method: "POST", body: JSON.stringify(dto) }),
+  acceptOffer: (id: string): Promise<CommitmentOffer> =>
+    apiFetch(`/commitment-offers/${id}/accept`, { method: "POST" }),
+  declineOffer: (id: string): Promise<CommitmentOffer> =>
+    apiFetch(`/commitment-offers/${id}/decline`, { method: "POST" }),
+  withdrawOffer: (id: string): Promise<CommitmentOffer> =>
+    apiFetch(`/commitment-offers/${id}/withdraw`, { method: "POST" }),
+  getOffersForProject: (projectId: string): Promise<CommitmentOffer[]> =>
+    apiFetch(`/commitment-offers/project/${projectId}`),
+  getReceivedOffers: (): Promise<CommitmentOffer[]> =>
+    apiFetch("/commitment-offers/received"),
+  getSentOffers: (): Promise<CommitmentOffer[]> =>
+    apiFetch("/commitment-offers/sent"),
+};
+
+export interface UnifiedConversation {
+  conversationId: string;
+  conversationType: "DIRECT" | "COLLABORATION";
+  title: string;
+  avatarUrl?: string;
+  lastMessage?: string;
+  lastMessageAt?: string;
+  unreadCount: number;
+  otherUserId?: string;
+  projectId?: string;
+  status?: string;
+  posterId?: string;
+  isPoster?: boolean;
+}
+
+export interface ChatMessageV2 {
+  id: string;
+  collabRequestId?: string;
+  collaborationId?: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar?: string;
+  content: string;
+  sentAt: string;
+  isRead: boolean;
+  replyToId?: string;
+  replyToContent?: string;
+  replyToSenderName?: string;
+  isEdited?: boolean;
+  editedAt?: string;
+  isDeleted?: boolean;
+  deletedAt?: string;
+  messageType?: "USER" | "SYSTEM";
+}
+
+export const messagingService = {
+  getConversations: (): Promise<UnifiedConversation[]> =>
+    apiFetch("/messages/conversations"),
+  getMessages: (type: string, id: string, page = 0, size = 50): Promise<ChatMessageV2[]> =>
+    apiFetch(`/messages/conversation/${type}/${id}?page=${page}&size=${size}`),
+  markRead: (type: string, id: string): Promise<void> =>
+    apiFetch(`/messages/conversation/${type}/${id}/read`, { method: "PUT" }),
+  editMessage: (messageId: string, content: string): Promise<ChatMessageV2> =>
+    apiFetch(`/messages/${messageId}`, { method: "PUT", body: JSON.stringify({ content }) }),
+  deleteMessage: (messageId: string): Promise<ChatMessageV2> =>
+    apiFetch(`/messages/${messageId}`, { method: "DELETE" }),
+};
+
+export interface UserProjectItem {
+  collaborationId: string;
+  projectId: string;
+  title: string;
+  description: string;
+  role: string;
+  status: "ACTIVE" | "COMPLETED" | "LEFT" | "REMOVED" | string;
+  joinedAt: string;
+  ownerName?: string;
+  ownerId?: string;
+}
+
+export interface UserProjectsResponse {
+  committedProjects: UserProjectItem[];
+  pastProjects: UserProjectItem[];
+}
+
+export const userProjectsService = {
+  getUserProjects: (userId: string): Promise<UserProjectsResponse> =>
+    apiFetch(`/users/${userId}/projects`),
 };

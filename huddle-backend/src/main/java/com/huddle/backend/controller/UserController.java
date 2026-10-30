@@ -16,6 +16,10 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import com.huddle.backend.dto.UserProjectsResponse;
+import com.huddle.backend.dto.UserProjectsResponse.UserProjectItemDto;
+import com.huddle.backend.model.Collaboration;
+
 import java.util.stream.Collectors;
 
 @RestController
@@ -260,6 +264,46 @@ public class UserController {
                 saved.getId(), CollaborationMember.MemberStatus.ACTIVE);
 
         return ResponseEntity.ok(new MyProfileResponse(saved, projectsCount, collabsCount));
+    }
+
+    @GetMapping("/{userId}/projects")
+    public ResponseEntity<?> getUserProjects(@AuthenticationPrincipal User currentUser,
+                                             @PathVariable String userId) {
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+
+        List<CollaborationMember> memberships = collaborationMemberRepository.findByUserId(userId);
+        List<UserProjectItemDto> committed = new ArrayList<>();
+        List<UserProjectItemDto> past = new ArrayList<>();
+
+        for (CollaborationMember cm : memberships) {
+            Collaboration collab = cm.getCollaboration();
+            ProjectPost post = collab.getProjectPost();
+
+            UserProjectItemDto item = UserProjectItemDto.builder()
+                    .collaborationId(collab.getId())
+                    .projectId(post.getId())
+                    .title(post.getTitle())
+                    .description(post.getBriefDescription())
+                    .role(cm.getRole().name())
+                    .status(cm.getStatus().name())
+                    .joinedAt(cm.getJoinedAt() != null ? cm.getJoinedAt().toString() : null)
+                    .build();
+
+            if (cm.getStatus() == CollaborationMember.MemberStatus.ACTIVE) {
+                committed.add(item);
+            } else if (cm.getStatus() == CollaborationMember.MemberStatus.LEFT
+                    || cm.getStatus() == CollaborationMember.MemberStatus.REMOVED
+                    || collab.getStatus() == Collaboration.CollaborationStatus.ARCHIVED) {
+                past.add(item);
+            }
+        }
+
+        return ResponseEntity.ok(UserProjectsResponse.builder()
+                .committedProjects(committed)
+                .pastProjects(past)
+                .build());
     }
 
     private ProfileResponse buildProfileResponse(User user) {

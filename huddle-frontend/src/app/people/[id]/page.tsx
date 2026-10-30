@@ -9,6 +9,8 @@ import {
   SkillItem,
   SkillCategory,
   SkillProficiency,
+  userProjectsService,
+  UserProjectItem,
 } from "@/lib/api";
 import { isLoggedIn } from "@/lib/auth";
 import { ReportModal } from "@/app/components/ReportModal";
@@ -34,6 +36,10 @@ import {
   Award,
   Clock,
   Laptop,
+  FolderGit2,
+  CheckCircle2,
+  LogOut,
+  UserMinus,
   Share2,
 } from "lucide-react";
 
@@ -67,6 +73,8 @@ export default function PublicProfilePage({ params }: { params: Promise<{ id: st
   const { id } = use(params);
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [committedProjects, setCommittedProjects] = useState<UserProjectItem[]>([]);
+  const [pastProjects, setPastProjects] = useState<UserProjectItem[]>([]);
   // Accepted collaboration request ID for chat navigation
   const [chatRequestId, setChatRequestId] = useState<string>("");
   const [loading, setLoading] = useState(true);

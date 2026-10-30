@@ -62,7 +62,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       { name: "Browse", href: "/projects", icon: Compass, activeColor: "text-huddle-coral" },
       { name: "Matched", href: "/matched", icon: Sparkles, activeColor: "text-huddle-purple" },
       { name: "People", href: "/people", icon: Users },
-      { name: "Messages", href: "/chat", icon: MessageSquare, badge: unreadMessageCount > 0 ? unreadMessageCount : undefined },
+      { name: "Messages", href: "/messages", icon: MessageSquare, badge: unreadMessageCount > 0 ? unreadMessageCount : undefined },
       { name: "Requests", href: "/requests", icon: Inbox },
       { name: "Notifications", href: "/notifications", icon: Bell, badge: unreadCount > 0 ? unreadCount : undefined },
     ]},
@@ -244,7 +244,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <InstitutionStatusBanner />
 
         {/* Scrollable Content */}
-        <div className={`flex-1 z-10 relative ${pathname === '/chat' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto p-6 md:p-10 custom-scrollbar'}`}>
+        <div className={`flex-1 z-10 relative ${(pathname === '/chat' || pathname === '/messages') ? 'overflow-hidden flex flex-col' : 'overflow-y-auto p-6 md:p-10 custom-scrollbar'}`}>
           {children}
         </div>
       </main>

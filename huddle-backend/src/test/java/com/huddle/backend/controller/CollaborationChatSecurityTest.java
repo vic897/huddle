@@ -52,7 +52,13 @@ public class CollaborationChatSecurityTest {
     private SimpMessagingTemplate messagingTemplate;
 
     @Mock
+    private com.huddle.backend.service.ChatMessageService chatMessageService;
+
+    @Mock
     private com.huddle.backend.repository.UserRepository userRepository;
+
+    @Mock
+    private com.huddle.backend.repository.OwnershipTransferRequestRepository ownershipTransferRequestRepository;
 
     private CollaborationController collaborationController;
     private ChatController chatController;
@@ -63,14 +69,15 @@ public class CollaborationChatSecurityTest {
 
     @BeforeEach
     void setUp() {
-        collaborationController = new CollaborationController(collaborationService, chatMessageRepository);
+        collaborationController = new CollaborationController(collaborationService, chatMessageRepository, ownershipTransferRequestRepository);
         chatController = new ChatController(
                 chatMessageRepository,
                 collabRequestRepository,
                 collaborationRepository,
                 memberRepository,
                 userRepository,
-                messagingTemplate
+                messagingTemplate,
+                chatMessageService
         );
 
         activeMember = new User();

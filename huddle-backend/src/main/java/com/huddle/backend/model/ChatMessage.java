@@ -7,7 +7,12 @@ import lombok.Setter;
 import java.time.Instant;
 
 @Entity
-@Table(name = "chat_messages")
+@Table(
+    name = "chat_messages",
+    indexes = {
+        @Index(name = "idx_cm_reply_to_id", columnList = "reply_to_id")
+    }
+)
 @Getter
 @Setter
 public class ChatMessage {
@@ -37,4 +42,24 @@ public class ChatMessage {
     private boolean isRead = false;
 
     private Instant sentAt = Instant.now();
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reply_to_id")
+    private ChatMessage replyTo;
+
+    @Column(name = "is_edited")
+    private Boolean isEdited = false;
+
+    @Column(name = "edited_at")
+    private Instant editedAt;
+
+    @Column(name = "is_deleted")
+    private Boolean isDeleted = false;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "message_type", length = 50)
+    private MessageType messageType = MessageType.USER;
 }

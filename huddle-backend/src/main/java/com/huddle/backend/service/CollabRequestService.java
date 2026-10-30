@@ -111,9 +111,7 @@ public class CollabRequestService {
 
         CollabRequest saved = requestRepository.save(request);
 
-        if (accept) {
-            collaborationService.handleCollabRequestAccepted(saved);
-        }
+        // Acceptance unlocks DM discussion; formal membership requires CommitmentOffer
 
         // Notify the requestor of the decision
         User requestor = request.getRequestor();

@@ -19,12 +19,20 @@ public class CollaborationResponse {
     private final Instant createdAt;
     private final List<CollaborationMemberResponse> members;
     private final String conversationRequestId;
+    /** Non-null when a PENDING ownership transfer exists for this collaboration. */
+    private final OwnershipTransferResponse pendingOwnershipTransfer;
 
     public CollaborationResponse(Collaboration collaboration) {
-        this(collaboration, null);
+        this(collaboration, null, null);
     }
 
     public CollaborationResponse(Collaboration collaboration, String conversationRequestId) {
+        this(collaboration, conversationRequestId, null);
+    }
+
+    public CollaborationResponse(Collaboration collaboration,
+                                 String conversationRequestId,
+                                 OwnershipTransferResponse pendingOwnershipTransfer) {
         this.id = collaboration.getId();
         this.projectId = collaboration.getProjectPost().getId();
         this.projectTitle = collaboration.getProjectPost().getTitle();
@@ -36,5 +44,6 @@ public class CollaborationResponse {
                 .map(CollaborationMemberResponse::new)
                 .collect(Collectors.toList());
         this.conversationRequestId = conversationRequestId;
+        this.pendingOwnershipTransfer = pendingOwnershipTransfer;
     }
 }
