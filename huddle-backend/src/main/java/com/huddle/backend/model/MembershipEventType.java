@@ -1,0 +1,14 @@
+package com.huddle.backend.model;
+
+public enum MembershipEventType {
+    JOINED,
+    ROLE_CHANGED,
+    DEPARTURE_REQUESTED,
+    DEPARTURE_APPROVED,
+    DEPARTURE_DECLINED,
+    DEPARTURE_ESCALATED,
+    REMOVED,
+    SUSPENDED,
+    REINSTATED,
+    OWNERSHIP_TRANSFERRED
+}

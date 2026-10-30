@@ -117,4 +117,8 @@ public class User {
                 .map(Skill::getName)
                 .collect(Collectors.toSet());
     }
+
+    public String getName() {
+        return displayName != null && !displayName.isBlank() ? displayName : email;
+    }
 }

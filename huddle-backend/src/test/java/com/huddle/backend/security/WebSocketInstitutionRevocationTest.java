@@ -33,6 +33,12 @@ class WebSocketInstitutionRevocationTest {
     private UserRepository userRepository;
 
     @Mock
+    private com.huddle.backend.repository.CollaborationMemberRepository memberRepository;
+
+    @Mock
+    private com.huddle.backend.repository.CollabRequestRepository collabRequestRepository;
+
+    @Mock
     private MessageChannel messageChannel;
 
     @InjectMocks

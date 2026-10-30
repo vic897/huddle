@@ -14,6 +14,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
+import com.huddle.backend.model.CollaborationMember;
+import com.huddle.backend.repository.CollaborationMemberRepository;
+import com.huddle.backend.model.User;
+import com.huddle.backend.service.CollaborationService;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 /**
  * Admin-only report moderation endpoints.
@@ -26,11 +31,17 @@ public class AdminReportController {
 
     private final ReportRepository reportRepository;
     private final ReportModerationService moderationService;
+    private final CollaborationMemberRepository collaborationMemberRepository;
+    private final CollaborationService collaborationService;
 
     public AdminReportController(ReportRepository reportRepository,
-                                  ReportModerationService moderationService) {
+                                  ReportModerationService moderationService,
+                                  CollaborationMemberRepository collaborationMemberRepository,
+                                  CollaborationService collaborationService) {
         this.reportRepository = reportRepository;
         this.moderationService = moderationService;
+        this.collaborationMemberRepository = collaborationMemberRepository;
+        this.collaborationService = collaborationService;
     }
 
     /** GET /api/admin/reports — list all reports */
@@ -94,5 +105,24 @@ public class AdminReportController {
             this.status = report.getStatus() != null ? report.getStatus().name() : "PENDING";
             this.createdAt = report.getCreatedAt();
         }
+    }
+
+    /** GET /api/admin/escalated-departures — list all escalated departures */
+    @GetMapping("/escalated-departures")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<CollaborationMember>> getEscalatedDepartures() {
+        return ResponseEntity.ok(collaborationMemberRepository.findEscalatedDepartures());
+    }
+
+    /** POST /api/admin/escalated-departures/{collaborationId}/{userId}/resolve */
+    @PostMapping("/escalated-departures/{collaborationId}/{userId}/resolve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> resolveEscalatedDeparture(
+            @PathVariable String collaborationId,
+            @PathVariable String userId,
+            @RequestParam boolean approve,
+            @AuthenticationPrincipal User adminUser) {
+        collaborationService.resolveDeparture(collaborationId, userId, approve, adminUser);
+        return ResponseEntity.ok(Map.of("message", "Escalated departure resolved by administrator"));
     }
 }

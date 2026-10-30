@@ -1,7 +1,6 @@
 package com.huddle.backend.controller;
 
-import com.huddle.backend.dto.ChatMessageDto;
-import com.huddle.backend.dto.ChatMessageResponse;
+import com.huddle.backend.dto.*;
 import com.huddle.backend.model.ChatMessage;
 import com.huddle.backend.model.CollabRequest;
 import com.huddle.backend.model.Collaboration;
@@ -13,14 +12,20 @@ import com.huddle.backend.repository.CollabRequestRepository;
 import com.huddle.backend.repository.CollaborationMemberRepository;
 import com.huddle.backend.repository.CollaborationRepository;
 import com.huddle.backend.repository.UserRepository;
+import com.huddle.backend.service.ChatMessageService;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.util.List;
 
 @Controller
 public class ChatController {
@@ -31,25 +36,77 @@ public class ChatController {
     private final CollaborationMemberRepository memberRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final ChatMessageService chatMessageService;
 
     public ChatController(ChatMessageRepository chatMessageRepository,
-                           CollabRequestRepository collabRequestRepository,
-                           CollaborationRepository collaborationRepository,
-                           CollaborationMemberRepository memberRepository,
-                           UserRepository userRepository,
-                           SimpMessagingTemplate messagingTemplate) {
+                          CollabRequestRepository collabRequestRepository,
+                          CollaborationRepository collaborationRepository,
+                          CollaborationMemberRepository memberRepository,
+                          UserRepository userRepository,
+                          SimpMessagingTemplate messagingTemplate,
+                          ChatMessageService chatMessageService) {
         this.chatMessageRepository = chatMessageRepository;
         this.collabRequestRepository = collabRequestRepository;
         this.collaborationRepository = collaborationRepository;
         this.memberRepository = memberRepository;
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
+        this.chatMessageService = chatMessageService;
     }
+
+    // --- REST Endpoints for Unified Messaging 2.0 ---
+
+    @GetMapping("/api/messages/conversations")
+    @ResponseBody
+    public ResponseEntity<List<UnifiedConversationDto>> getUnifiedConversations(
+            @AuthenticationPrincipal User currentUser) {
+        return ResponseEntity.ok(chatMessageService.getUnifiedConversations(currentUser));
+    }
+
+    @GetMapping("/api/messages/conversation/{type}/{id}")
+    @ResponseBody
+    public ResponseEntity<List<ChatMessageV2Response>> getConversationMessages(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable String type,
+            @PathVariable String id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(chatMessageService.getConversationMessages(type, id, page, size, currentUser));
+    }
+
+    @PutMapping("/api/messages/conversation/{type}/{id}/read")
+    @ResponseBody
+    public ResponseEntity<Void> markConversationRead(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable String type,
+            @PathVariable String id) {
+        chatMessageService.markConversationAsRead(type, id, currentUser);
+        return ResponseEntity.ok().build();
+    }
+
+    @PutMapping("/api/messages/{messageId}")
+    @ResponseBody
+    public ResponseEntity<ChatMessageV2Response> editMessage(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable String messageId,
+            @Valid @RequestBody EditMessageDto dto) {
+        return ResponseEntity.ok(chatMessageService.editMessage(messageId, dto, currentUser));
+    }
+
+    @DeleteMapping("/api/messages/{messageId}")
+    @ResponseBody
+    public ResponseEntity<ChatMessageV2Response> deleteMessage(
+            @AuthenticationPrincipal User currentUser,
+            @PathVariable String messageId) {
+        return ResponseEntity.ok(chatMessageService.deleteMessage(messageId, currentUser));
+    }
+
+    // --- WebSocket Message Handlers ---
 
     @MessageMapping("/chat/{requestId}")
     public void sendMessage(@DestinationVariable String requestId,
-                             ChatMessageDto dto,
-                             Principal principal) {
+                            ChatMessageDto dto,
+                            Principal principal) {
 
         User sender = getAuthenticatedUser(principal);
 
@@ -81,9 +138,44 @@ public class ChatController {
         message.setSender(sender);
         message.setContent(content);
 
+        if (dto.getReplyToId() != null) {
+            chatMessageRepository.findById(dto.getReplyToId()).ifPresent(replyMsg -> {
+                if (replyMsg.getCollabRequest() != null && replyMsg.getCollabRequest().getId().equals(requestId)) {
+                    message.setReplyTo(replyMsg);
+                }
+            });
+        }
+
         ChatMessage saved = chatMessageRepository.save(message);
 
-        messagingTemplate.convertAndSend("/topic/chat/" + requestId, new ChatMessageResponse(saved));
+        messagingTemplate.convertAndSend("/topic/chat/" + requestId, ChatMessageV2Response.fromEntity(saved));
+    }
+
+    @MessageMapping("/chat/{requestId}/typing")
+    public void handleDirectTyping(@DestinationVariable String requestId,
+                                   TypingNotificationDto typingDto,
+                                   Principal principal) {
+        User user = getAuthenticatedUser(principal);
+
+        CollabRequest request = collabRequestRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Collab request not found"));
+
+        boolean isParticipant = request.getRequestor().getId().equals(user.getId())
+                || request.getPoster().getId().equals(user.getId());
+
+        if (!isParticipant) {
+            throw new SecurityException("Not a participant in this collab request");
+        }
+
+        if (request.getStatus() != CollabRequest.RequestStatus.ACCEPTED) {
+            throw new IllegalStateException("Chat is only available for accepted requests");
+        }
+
+        typingDto.setUserId(user.getId());
+        typingDto.setUserName(user.getName());
+        typingDto.setConversationType("DIRECT");
+        typingDto.setConversationId(requestId);
+        messagingTemplate.convertAndSend("/topic/chat/" + requestId + "/typing", typingDto);
     }
 
     @MessageMapping("/collaboration-chat/{collaborationId}")
@@ -96,7 +188,6 @@ public class ChatController {
         Collaboration collaboration = collaborationRepository.findById(collaborationId)
                 .orElseThrow(() -> new IllegalArgumentException("Collaboration not found"));
 
-        // Only ACTIVE members can send messages
         boolean isActiveMember = memberRepository.existsByCollaborationIdAndUserIdAndStatus(
                 collaborationId, sender.getId(), MemberStatus.ACTIVE);
 
@@ -104,7 +195,6 @@ public class ChatController {
             throw new SecurityException("You are not an active member of this collaboration workspace");
         }
 
-        // If collaboration is archived, chat is read-only
         if (collaboration.getStatus() == Collaboration.CollaborationStatus.ARCHIVED) {
             throw new IllegalStateException("This collaboration workspace is archived and read-only");
         }
@@ -123,9 +213,44 @@ public class ChatController {
         message.setSender(sender);
         message.setContent(content);
 
+        if (dto.getReplyToId() != null) {
+            chatMessageRepository.findById(dto.getReplyToId()).ifPresent(replyMsg -> {
+                if (replyMsg.getCollaboration() != null && replyMsg.getCollaboration().getId().equals(collaborationId)) {
+                    message.setReplyTo(replyMsg);
+                }
+            });
+        }
+
         ChatMessage saved = chatMessageRepository.save(message);
 
-        messagingTemplate.convertAndSend("/topic/collaboration-chat/" + collaborationId, new ChatMessageResponse(saved));
+        messagingTemplate.convertAndSend("/topic/collaboration-chat/" + collaborationId, ChatMessageV2Response.fromEntity(saved));
+    }
+
+    @MessageMapping("/collaboration-chat/{collaborationId}/typing")
+    public void handleCollaborationTyping(@DestinationVariable String collaborationId,
+                                          TypingNotificationDto typingDto,
+                                          Principal principal) {
+        User user = getAuthenticatedUser(principal);
+
+        Collaboration collaboration = collaborationRepository.findById(collaborationId)
+                .orElseThrow(() -> new IllegalArgumentException("Collaboration not found"));
+
+        boolean isActiveMember = memberRepository.existsByCollaborationIdAndUserIdAndStatus(
+                collaborationId, user.getId(), MemberStatus.ACTIVE);
+
+        if (!isActiveMember) {
+            throw new SecurityException("You are not an active member of this collaboration workspace");
+        }
+
+        if (collaboration.getStatus() == Collaboration.CollaborationStatus.ARCHIVED) {
+            throw new IllegalStateException("This collaboration workspace is archived and read-only");
+        }
+
+        typingDto.setUserId(user.getId());
+        typingDto.setUserName(user.getName());
+        typingDto.setConversationType("COLLABORATION");
+        typingDto.setConversationId(collaborationId);
+        messagingTemplate.convertAndSend("/topic/collaboration-chat/" + collaborationId + "/typing", typingDto);
     }
 
     private User getAuthenticatedUser(Principal principal) {
@@ -134,7 +259,6 @@ public class ChatController {
             throw new SecurityException("No authenticated user on this WebSocket session");
         }
 
-        // Re-check current institution status from DB to deny revoked/pending accounts
         User freshUser = userRepository.findById(sender.getId())
                 .orElseThrow(() -> new SecurityException("User not found"));
 

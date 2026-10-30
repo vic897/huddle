@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import {
   userService,
   postService,
+  userProjectsService,
+  UserProjectItem,
   UserProfile,
   SkillItem,
   EducationItem,
@@ -72,6 +74,8 @@ export default function ProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [myProjects, setMyProjects] = useState<any[]>([]);
+  const [committedProjects, setCommittedProjects] = useState<UserProjectItem[]>([]);
+  const [pastProjects, setPastProjects] = useState<UserProjectItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Edit Mode state

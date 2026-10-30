@@ -171,15 +171,17 @@ function RequestCard({ req, view, onAction, loading, router }: RequestCardProps)
           </>
         )}
 
-        {/* ACCEPTED → Open Chat */}
+        {/* ACCEPTED → Open Chat & Send Offer if received */}
         {isAccepted && (
-          <button
-            onClick={() => router.push(`/chat?requestId=${req.id}`)}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/10 text-xs font-bold transition-all shadow-md"
-          >
-            <MessageSquare className="w-4 h-4 text-huddle-pink" />
-            Open Chat
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => router.push(`/messages`)}
+              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/10 text-xs font-bold transition-all shadow-md"
+            >
+              <MessageSquare className="w-4 h-4 text-huddle-pink" />
+              Direct Message
+            </button>
+          </div>
         )}
 
         {/* SENT + PENDING → Awaiting / Withdraw */}

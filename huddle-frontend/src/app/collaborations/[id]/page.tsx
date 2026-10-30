@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, use, useRef } from "react";
-import { collaborationService, Collaboration } from "@/lib/api";
+import { collaborationService, Collaboration, OwnershipTransferInfo } from "@/lib/api";
 import { config } from "@/lib/config";
 import { isLoggedIn } from "@/lib/auth";
 import { useRouter } from "next/navigation";
@@ -26,8 +26,26 @@ import {
   ChevronRight,
   CheckCircle,
   XCircle,
+  PauseCircle,
+  PlayCircle,
+  RefreshCw,
+  GitBranch,
+  AlertTriangle,
 } from "lucide-react";
 import { Client, IMessage } from "@stomp/stompjs";
+
+// ─── Modal type union ────────────────────────────────────────────────────────
+type ModalKind =
+  | "leave"
+  | "remove"
+  | "suspend"
+  | "reinstate"
+  | "departure"
+  | "departureResolve"
+  | "transferOwnership"
+  | "acceptTransfer"
+  | "declineTransfer"
+  | null;
 
 export default function CollaborationWorkspacePage({
   params,
@@ -54,9 +72,10 @@ export default function CollaborationWorkspacePage({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Membership management state
-  const [showLeaveModal, setShowLeaveModal] = useState(false);
-  const [showRemoveModal, setShowRemoveModal] = useState(false);
-  const [removeTarget, setRemoveTarget] = useState<{ id: string; displayName: string } | null>(null);
+  const [activeModal, setActiveModal] = useState<ModalKind>(null);
+  const [modalTarget, setModalTarget] = useState<{ id: string; displayName: string } | null>(null);
+  const [modalReason, setModalReason] = useState("");
+  const [transferRecipientId, setTransferRecipientId] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -246,34 +265,157 @@ export default function CollaborationWorkspacePage({
     setInput("");
   };
 
+  // ─── Modal helpers ────────────────────────────────────────────────────────
+  const closeModal = () => {
+    setActiveModal(null);
+    setModalTarget(null);
+    setModalReason("");
+    setTransferRecipientId("");
+  };
+
+  // ─── Action handlers ──────────────────────────────────────────────────────
+
   const handleLeave = async () => {
     setActionLoading(true);
     try {
       await collaborationService.leaveCollaboration(id);
-      setShowLeaveModal(false);
+      closeModal();
       setActionSuccess("You have left the collaboration.");
-      // Redirect after a short delay — user is no longer a member
       setTimeout(() => router.push("/collaborations"), 1800);
     } catch (err: any) {
-      setShowLeaveModal(false);
+      closeModal();
       setActionError(err?.message || "Failed to leave collaboration.");
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleRemove = async () => {
-    if (!removeTarget) return;
+  const handleDepartureRequest = async () => {
     setActionLoading(true);
     try {
-      await collaborationService.removeMember(id, removeTarget.id);
-      setShowRemoveModal(false);
-      setRemoveTarget(null);
-      setActionSuccess(`${removeTarget.displayName} has been removed from the collaboration.`);
+      await collaborationService.requestDeparture(id, modalReason.trim() || undefined);
+      closeModal();
+      setActionSuccess("Departure request submitted. The project owner will review it.");
       await loadWorkspace();
     } catch (err: any) {
-      setShowRemoveModal(false);
+      closeModal();
+      setActionError(err?.message || "Failed to submit departure request.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!modalTarget) return;
+    setActionLoading(true);
+    try {
+      await collaborationService.removeMember(id, modalTarget.id, modalReason.trim() || undefined);
+      closeModal();
+      setActionSuccess(`${modalTarget.displayName} has been removed from the collaboration.`);
+      await loadWorkspace();
+    } catch (err: any) {
+      closeModal();
       setActionError(err?.message || "Failed to remove member.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSuspend = async () => {
+    if (!modalTarget) return;
+    if (!modalReason.trim()) {
+      setActionError("A suspension reason is required.");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await collaborationService.suspendMember(id, modalTarget.id, modalReason.trim());
+      closeModal();
+      setActionSuccess(`${modalTarget.displayName} has been suspended.`);
+      await loadWorkspace();
+    } catch (err: any) {
+      closeModal();
+      setActionError(err?.message || "Failed to suspend member.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReinstate = async () => {
+    if (!modalTarget) return;
+    setActionLoading(true);
+    try {
+      await collaborationService.reinstateMember(id, modalTarget.id);
+      closeModal();
+      setActionSuccess(`${modalTarget.displayName} has been reinstated.`);
+      await loadWorkspace();
+    } catch (err: any) {
+      closeModal();
+      setActionError(err?.message || "Failed to reinstate member.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleTransferOwnership = async () => {
+    if (!transferRecipientId) {
+      setActionError("Please select a recipient.");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await collaborationService.initiateOwnershipTransfer(id, transferRecipientId);
+      closeModal();
+      setActionSuccess("Ownership transfer offer sent. The recipient must accept it.");
+      await loadWorkspace();
+    } catch (err: any) {
+      closeModal();
+      setActionError(err?.message || "Failed to initiate ownership transfer.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleAcceptTransfer = async (transferId: string) => {
+    setActionLoading(true);
+    try {
+      await collaborationService.acceptOwnershipTransfer(transferId);
+      closeModal();
+      setActionSuccess("You are now the project owner!");
+      await loadWorkspace();
+    } catch (err: any) {
+      closeModal();
+      setActionError(err?.message || "Failed to accept ownership transfer.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeclineTransfer = async (transferId: string) => {
+    setActionLoading(true);
+    try {
+      await collaborationService.declineOwnershipTransfer(transferId);
+      closeModal();
+      setActionSuccess("Ownership transfer declined.");
+      await loadWorkspace();
+    } catch (err: any) {
+      closeModal();
+      setActionError(err?.message || "Failed to decline ownership transfer.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResolveDeparture = async (userId: string, displayName: string, approved: boolean) => {
+    setActionLoading(true);
+    try {
+      await collaborationService.resolveDeparture(id, userId, approved);
+      closeModal();
+      setActionSuccess(approved ? `${displayName}'s departure has been approved.` : `${displayName}'s departure request was declined.`);
+      await loadWorkspace();
+    } catch (err: any) {
+      closeModal();
+      setActionError(err?.message || "Failed to resolve departure request.");
     } finally {
       setActionLoading(false);
     }
@@ -346,17 +488,39 @@ export default function CollaborationWorkspacePage({
 
   const allMembers = collaboration.members || [];
   const activeMembers = allMembers.filter((m) => m.status === "ACTIVE");
+  const suspendedMembers = allMembers.filter((m) => m.status === "SUSPENDED");
   const formerMembers = allMembers.filter((m) => m.status === "LEFT" || m.status === "REMOVED");
 
-  const currentMember = activeMembers.find((m) => m.user?.id === currentUserId);
-  const isOwner = currentMember?.role === "OWNER";
+  const currentMember = allMembers.find(
+    (m) => m.user?.id === currentUserId && (m.status === "ACTIVE" || m.status === "SUSPENDED")
+  );
+  const isOwner = currentMember?.role === "OWNER" && currentMember?.status === "ACTIVE";
   const isArchived = collaboration.status === "ARCHIVED";
+
+  const pendingTransfer = collaboration.pendingOwnershipTransfer;
+  const isTransferRecipient = pendingTransfer?.recipientId === currentUserId && pendingTransfer?.status === "PENDING";
+
+  // Departure-pending members (visible to owner)
+  const departurePendingMembers = activeMembers.filter(
+    (m) => m.departureStatus === "PENDING_APPROVAL" || m.departureStatus === "ESCALATED_ADMIN"
+  );
+
+  // My own departure status
+  const myMember = allMembers.find((m) => m.user?.id === currentUserId);
+  const myDepartureStatus = myMember?.departureStatus;
+  const hasPendingDeparture =
+    myDepartureStatus === "PENDING_APPROVAL" || myDepartureStatus === "ESCALATED_ADMIN";
 
   const createdDateStr = new Date(collaboration.createdAt).toLocaleDateString(undefined, {
     year: "numeric",
     month: "long",
     day: "numeric",
   });
+
+  // Selectable transfer recipients (active non-owner members)
+  const transferCandidates = activeMembers.filter(
+    (m) => m.role !== "OWNER" && m.user?.id !== currentUserId
+  );
 
   return (
     <div className="max-w-6xl mx-auto pb-16">
@@ -371,6 +535,47 @@ export default function CollaborationWorkspacePage({
         <div className="mb-4 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
           <XCircle className="w-4 h-4 flex-shrink-0" />
           <span>{actionError}</span>
+        </div>
+      )}
+
+      {/* Ownership Transfer Banner (recipient) */}
+      {isTransferRecipient && pendingTransfer && (
+        <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 px-4 py-3 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-300 text-sm">
+          <div className="flex items-center gap-2 flex-1">
+            <GitBranch className="w-4 h-4 flex-shrink-0 text-purple-400" />
+            <span>
+              <span className="font-semibold text-white">{pendingTransfer.senderName}</span> has offered you ownership of this collaboration.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => handleAcceptTransfer(pendingTransfer.id)}
+              disabled={actionLoading}
+              className="px-3 py-1.5 rounded-lg bg-purple-500/80 hover:bg-purple-500 text-white text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {actionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+              Accept
+            </button>
+            <button
+              onClick={() => handleDeclineTransfer(pendingTransfer.id)}
+              disabled={actionLoading}
+              className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5"
+            >
+              <XCircle className="w-3 h-3" />
+              Decline
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Pending Transfer Notice (owner — waiting for acceptance) */}
+      {pendingTransfer && !isTransferRecipient && isOwner && (
+        <div className="mb-4 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-sm">
+          <Clock className="w-4 h-4 flex-shrink-0" />
+          <span>
+            Ownership transfer pending — waiting for{" "}
+            <span className="font-semibold text-white">{pendingTransfer.recipientName}</span> to accept.
+          </span>
         </div>
       )}
 
@@ -491,6 +696,43 @@ export default function CollaborationWorkspacePage({
               </span>
             </div>
 
+            {/* Departure requests pending owner resolution */}
+            {isOwner && departurePendingMembers.length > 0 && (
+              <div className="mb-4 p-3 rounded-xl bg-yellow-500/5 border border-yellow-500/20">
+                <p className="text-[11px] font-semibold text-yellow-400 mb-2 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Pending departure requests ({departurePendingMembers.length})
+                </p>
+                <div className="space-y-2">
+                  {departurePendingMembers.map((m) => {
+                    const name = m.user?.displayName || "Member";
+                    return (
+                      <div key={m.id} className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-gray-300 truncate">{name}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => handleResolveDeparture(m.user?.id || "", name, true)}
+                            disabled={actionLoading}
+                            className="px-2 py-1 rounded-md bg-green-500/20 hover:bg-green-500/30 text-green-400 text-[10px] font-medium transition-colors disabled:opacity-50"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleResolveDeparture(m.user?.id || "", name, false)}
+                            disabled={actionLoading}
+                            className="px-2 py-1 rounded-md bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] font-medium transition-colors disabled:opacity-50"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Active members list */}
             <div className="space-y-3">
               {activeMembers.map((member) => {
                 const displayName = member.user?.displayName || "Anonymous Collaborator";
@@ -503,6 +745,9 @@ export default function CollaborationWorkspacePage({
                   : null;
                 const isSelf = member.user?.id === currentUserId;
                 const isMemberOwner = member.role === "OWNER";
+                const hasDeparturePending =
+                  member.departureStatus === "PENDING_APPROVAL" ||
+                  member.departureStatus === "ESCALATED_ADMIN";
 
                 return (
                   <div
@@ -535,6 +780,11 @@ export default function CollaborationWorkspacePage({
                               You
                             </span>
                           )}
+                          {hasDeparturePending && (
+                            <span className="px-1.5 rounded-full text-[9px] font-semibold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                              Leaving
+                            </span>
+                          )}
                         </div>
 
                         {member.user?.bio && (
@@ -553,18 +803,34 @@ export default function CollaborationWorkspacePage({
                     </div>
 
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      {/* Owner can remove non-owner active members (not self) when not archived */}
+                      {/* Owner actions on non-owner active members (not self) when not archived */}
                       {isOwner && !isSelf && !isMemberOwner && !isArchived && (
-                        <button
-                          onClick={() => {
-                            setRemoveTarget({ id: member.user?.id || "", displayName });
-                            setShowRemoveModal(true);
-                          }}
-                          className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
-                          title={`Remove ${displayName}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <>
+                          {/* Suspend */}
+                          <button
+                            onClick={() => {
+                              setModalTarget({ id: member.user?.id || "", displayName });
+                              setModalReason("");
+                              setActiveModal("suspend");
+                            }}
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-yellow-400 hover:bg-yellow-400/10 transition-colors"
+                            title={`Suspend ${displayName}`}
+                          >
+                            <PauseCircle className="w-3.5 h-3.5" />
+                          </button>
+                          {/* Remove */}
+                          <button
+                            onClick={() => {
+                              setModalTarget({ id: member.user?.id || "", displayName });
+                              setModalReason("");
+                              setActiveModal("remove");
+                            }}
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                            title={`Remove ${displayName}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
                       )}
                       <Link
                         href={`/people/${member.user?.id}`}
@@ -579,22 +845,107 @@ export default function CollaborationWorkspacePage({
               })}
             </div>
 
-            {/* Member actions footer */}
-            <div className="mt-4 pt-4 border-t border-white/5">
-              {isOwner ? (
-                <div className="flex items-center gap-2 text-[11px] text-gray-500">
-                  <ShieldCheck className="w-3.5 h-3.5 text-huddle-purple" />
-                  <span>You are the Project Lead. Archive the project to close the workspace.</span>
+            {/* Suspended members section */}
+            {suspendedMembers.length > 0 && (
+              <div className="mt-4">
+                <p className="text-[11px] font-semibold text-yellow-500/80 uppercase tracking-wider mb-2">
+                  Suspended ({suspendedMembers.length})
+                </p>
+                <div className="space-y-2">
+                  {suspendedMembers.map((member) => {
+                    const displayName = member.user?.displayName || "Anonymous";
+                    const initials = displayName.charAt(0).toUpperCase();
+                    return (
+                      <div
+                        key={member.id}
+                        className="p-3 rounded-xl bg-yellow-500/[0.04] border border-yellow-500/20 flex items-center gap-3"
+                      >
+                        <div className="w-7 h-7 rounded-full bg-yellow-500/10 flex items-center justify-center text-yellow-400 font-bold text-xs flex-shrink-0">
+                          {initials}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-xs text-gray-300 font-medium block">{displayName}</span>
+                          {member.suspensionReason && (
+                            <span className="text-[10px] text-gray-500 line-clamp-1">{member.suspensionReason}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {isOwner && !isArchived && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setModalTarget({ id: member.user?.id || "", displayName });
+                                  setActiveModal("reinstate");
+                                }}
+                                className="p-1.5 rounded-lg text-gray-500 hover:text-green-400 hover:bg-green-400/10 transition-colors"
+                                title={`Reinstate ${displayName}`}
+                              >
+                                <PlayCircle className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setModalTarget({ id: member.user?.id || "", displayName });
+                                  setModalReason("");
+                                  setActiveModal("remove");
+                                }}
+                                className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                                title={`Remove ${displayName}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
+              </div>
+            )}
+
+            {/* Member actions footer */}
+            <div className="mt-4 pt-4 border-t border-white/5 flex flex-col gap-2">
+              {isOwner ? (
+                <>
+                  <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                    <ShieldCheck className="w-3.5 h-3.5 text-huddle-purple" />
+                    <span>You are the Project Lead. Archive the project to close the workspace.</span>
+                  </div>
+                  {/* Transfer Ownership button — only shown when no pending transfer */}
+                  {!pendingTransfer && !isArchived && transferCandidates.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setTransferRecipientId("");
+                        setActiveModal("transferOwnership");
+                      }}
+                      className="flex items-center gap-2 text-xs text-purple-400 hover:text-purple-300 transition-colors px-3 py-2 rounded-lg bg-purple-400/5 hover:bg-purple-400/10 border border-purple-400/10 w-full justify-center mt-1"
+                    >
+                      <GitBranch className="w-3.5 h-3.5" />
+                      Transfer Ownership
+                    </button>
+                  )}
+                </>
               ) : (
                 !isArchived && (
-                  <button
-                    onClick={() => setShowLeaveModal(true)}
-                    className="flex items-center gap-2 text-xs text-red-400 hover:text-red-300 transition-colors px-3 py-2 rounded-lg bg-red-400/5 hover:bg-red-400/10 border border-red-400/10 w-full justify-center"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    Leave Collaboration
-                  </button>
+                  <>
+                    {hasPendingDeparture ? (
+                      <div className="flex items-center gap-2 text-xs text-yellow-400 px-3 py-2 rounded-lg bg-yellow-400/5 border border-yellow-400/10 w-full justify-center">
+                        <Clock className="w-3.5 h-3.5" />
+                        Departure request pending owner review
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setModalReason("");
+                          setActiveModal("departure");
+                        }}
+                        className="flex items-center gap-2 text-xs text-red-400 hover:text-red-300 transition-colors px-3 py-2 rounded-lg bg-red-400/5 hover:bg-red-400/10 border border-red-400/10 w-full justify-center"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        Request to Leave
+                      </button>
+                    )}
+                  </>
                 )
               )}
             </div>
@@ -619,7 +970,13 @@ export default function CollaborationWorkspacePage({
                     {formerMembers.map((member) => {
                       const displayName = member.user?.displayName || "Anonymous";
                       const initials = displayName.charAt(0).toUpperCase();
-                      const statusLabel = member.status === "LEFT" ? "Left" : "Removed";
+                      const statusLabel =
+                        member.status === "LEFT"
+                          ? "Left"
+                          : member.status === "REMOVED"
+                          ? "Removed"
+                          : "Suspended";
+                      const reason = member.removalReason || member.departureReason;
                       return (
                         <div
                           key={member.id}
@@ -630,8 +987,11 @@ export default function CollaborationWorkspacePage({
                           </div>
                           <div className="min-w-0 flex-1">
                             <span className="text-xs text-gray-400 font-medium">{displayName}</span>
+                            {reason && (
+                              <p className="text-[10px] text-gray-600 line-clamp-1 mt-0.5">{reason}</p>
+                            )}
                           </div>
-                          <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-0.5 rounded-full">
+                          <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-0.5 rounded-full flex-shrink-0">
                             {statusLabel}
                           </span>
                         </div>
@@ -763,74 +1123,175 @@ export default function CollaborationWorkspacePage({
         </div>
       </div>
 
-      {/* ─── Leave Confirmation Modal ─────────────────────────────────────── */}
-      {showLeaveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-huddle-charcoal border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl">
-            <div className="flex items-start gap-4 mb-5">
-              <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
-                <LogOut className="w-5 h-5 text-red-400" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white mb-1">Leave Collaboration?</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  You will immediately lose access to this workspace and the group chat. The project owner will be notified. You cannot undo this action without a new collaboration request being accepted.
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setShowLeaveModal(false)}
-                disabled={actionLoading}
-                className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleLeave}
-                disabled={actionLoading}
-                className="px-4 py-2 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
-                Leave Collaboration
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ─────────────────────────── MODALS ────────────────────────────────── */}
 
-      {/* ─── Remove Member Confirmation Modal ───────────────────────────────── */}
-      {showRemoveModal && removeTarget && (
+      {activeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-huddle-charcoal border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl">
-            <div className="flex items-start gap-4 mb-5">
-              <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
-                <Trash2 className="w-5 h-5 text-red-400" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white mb-1">Remove Member?</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  <span className="text-white font-semibold">{removeTarget.displayName}</span> will immediately lose access to this workspace and the group chat. They will be notified. Their past messages will remain in the chat history.
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => { setShowRemoveModal(false); setRemoveTarget(null); }}
-                disabled={actionLoading}
-                className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRemove}
-                disabled={actionLoading}
-                className="px-4 py-2 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                Remove {removeTarget.displayName}
-              </button>
-            </div>
+
+            {/* ── Departure Request (member) ── */}
+            {activeModal === "departure" && (
+              <>
+                <div className="flex items-start gap-4 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
+                    <LogOut className="w-5 h-5 text-red-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white mb-1">Request to Leave</h3>
+                    <p className="text-sm text-gray-400 leading-relaxed">
+                      The project owner will review your request. You keep access until it is approved.
+                    </p>
+                  </div>
+                </div>
+                <textarea
+                  value={modalReason}
+                  onChange={(e) => setModalReason(e.target.value)}
+                  className="w-full bg-huddle-dark border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-huddle-coral transition-colors resize-none mb-4"
+                  rows={3}
+                  placeholder="Reason for leaving (optional)"
+                />
+                <div className="flex gap-3 justify-end">
+                  <button onClick={closeModal} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium transition-colors disabled:opacity-50">
+                    Cancel
+                  </button>
+                  <button onClick={handleDepartureRequest} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2">
+                    {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
+                    Submit Request
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── Remove Member ── */}
+            {activeModal === "remove" && modalTarget && (
+              <>
+                <div className="flex items-start gap-4 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
+                    <Trash2 className="w-5 h-5 text-red-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white mb-1">Remove Member?</h3>
+                    <p className="text-sm text-gray-400 leading-relaxed">
+                      <span className="text-white font-semibold">{modalTarget.displayName}</span> will immediately lose access to this workspace. Their past messages will remain in chat history.
+                    </p>
+                  </div>
+                </div>
+                <textarea
+                  value={modalReason}
+                  onChange={(e) => setModalReason(e.target.value)}
+                  className="w-full bg-huddle-dark border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-huddle-coral transition-colors resize-none mb-4"
+                  rows={3}
+                  placeholder="Reason for removal (optional)"
+                />
+                <div className="flex gap-3 justify-end">
+                  <button onClick={closeModal} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium transition-colors disabled:opacity-50">
+                    Cancel
+                  </button>
+                  <button onClick={handleRemove} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2">
+                    {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                    Remove {modalTarget.displayName}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── Suspend Member ── */}
+            {activeModal === "suspend" && modalTarget && (
+              <>
+                <div className="flex items-start gap-4 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center flex-shrink-0">
+                    <PauseCircle className="w-5 h-5 text-yellow-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white mb-1">Suspend Member?</h3>
+                    <p className="text-sm text-gray-400 leading-relaxed">
+                      <span className="text-white font-semibold">{modalTarget.displayName}</span> will lose chat access temporarily. You can reinstate them at any time.
+                    </p>
+                  </div>
+                </div>
+                <textarea
+                  value={modalReason}
+                  onChange={(e) => setModalReason(e.target.value)}
+                  className="w-full bg-huddle-dark border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-yellow-500 transition-colors resize-none mb-4"
+                  rows={3}
+                  placeholder="Reason for suspension (required)"
+                />
+                <div className="flex gap-3 justify-end">
+                  <button onClick={closeModal} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium transition-colors disabled:opacity-50">
+                    Cancel
+                  </button>
+                  <button onClick={handleSuspend} disabled={actionLoading || !modalReason.trim()} className="px-4 py-2 rounded-lg bg-yellow-500/80 hover:bg-yellow-500 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2">
+                    {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PauseCircle className="w-3.5 h-3.5" />}
+                    Suspend
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── Reinstate Member ── */}
+            {activeModal === "reinstate" && modalTarget && (
+              <>
+                <div className="flex items-start gap-4 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-green-500/10 border border-green-500/20 flex items-center justify-center flex-shrink-0">
+                    <PlayCircle className="w-5 h-5 text-green-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white mb-1">Reinstate Member?</h3>
+                    <p className="text-sm text-gray-400 leading-relaxed">
+                      <span className="text-white font-semibold">{modalTarget.displayName}</span> will regain full workspace access immediately.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3 justify-end">
+                  <button onClick={closeModal} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium transition-colors disabled:opacity-50">
+                    Cancel
+                  </button>
+                  <button onClick={handleReinstate} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-green-500/80 hover:bg-green-500 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2">
+                    {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+                    Reinstate
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── Transfer Ownership ── */}
+            {activeModal === "transferOwnership" && (
+              <>
+                <div className="flex items-start gap-4 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center flex-shrink-0">
+                    <GitBranch className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white mb-1">Transfer Ownership</h3>
+                    <p className="text-sm text-gray-400 leading-relaxed">
+                      Select a team member to become the new project owner. They must accept before the transfer takes effect. You will become a regular member.
+                    </p>
+                  </div>
+                </div>
+                <select
+                  value={transferRecipientId}
+                  onChange={(e) => setTransferRecipientId(e.target.value)}
+                  className="w-full bg-huddle-dark border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-purple-500 transition-colors mb-4"
+                >
+                  <option value="">— Select new owner —</option>
+                  {transferCandidates.map((m) => (
+                    <option key={m.user?.id} value={m.user?.id}>
+                      {m.user?.displayName || "Member"}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex gap-3 justify-end">
+                  <button onClick={closeModal} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium transition-colors disabled:opacity-50">
+                    Cancel
+                  </button>
+                  <button onClick={handleTransferOwnership} disabled={actionLoading || !transferRecipientId} className="px-4 py-2 rounded-lg bg-purple-500/80 hover:bg-purple-500 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2">
+                    {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <GitBranch className="w-3.5 h-3.5" />}
+                    Send Offer
+                  </button>
+                </div>
+              </>
+            )}
+
           </div>
         </div>
       )}

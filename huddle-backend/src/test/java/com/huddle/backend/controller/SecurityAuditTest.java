@@ -8,6 +8,8 @@ import com.huddle.backend.model.ProjectPost;
 import com.huddle.backend.model.Report;
 import com.huddle.backend.model.ReportStatus;
 import com.huddle.backend.model.User;
+import com.huddle.backend.repository.CollaborationMemberRepository;
+import com.huddle.backend.service.CollaborationService;
 import com.huddle.backend.repository.CollabRequestRepository;
 import com.huddle.backend.repository.ProjectPostRepository;
 import com.huddle.backend.repository.ReportRepository;
@@ -43,6 +45,8 @@ public class SecurityAuditTest {
     @Mock private UserRepository userRepository;
     @Mock private ReportRepository reportRepository;
     @Mock private ReportModerationService moderationService;
+    @Mock private CollaborationMemberRepository collaborationMemberRepository;
+    @Mock private CollaborationService collaborationService;
     @Mock private JwtService jwtService;
 
     private ProjectPostController postController;
@@ -59,7 +63,8 @@ public class SecurityAuditTest {
         postController = new ProjectPostController(
                 postRepository, matchingService, blockService, collabRequestRepository, userRepository);
         reportController = new ReportController(reportRepository, userRepository, postRepository);
-        adminReportController = new AdminReportController(reportRepository, moderationService);
+        adminReportController = new AdminReportController(reportRepository, moderationService,
+                collaborationMemberRepository, collaborationService);
         blockController = new BlockController(blockService);
 
         owner = new User();
